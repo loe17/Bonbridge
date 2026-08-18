@@ -19,14 +19,17 @@ import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional, Pattern, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .. import __version__, markdown, paths, sysinfo
 
 log = logging.getLogger(__name__)
 
-Route = Tuple[str, Pattern[str], Callable[..., Any]]
+#: (method, compiled pattern, handler).  ``re.Pattern`` rather than
+#: ``typing.Pattern`` - the latter was removed in Python 3.12.  The forward
+#: reference keeps the subscript unevaluated so Python 3.8 stays happy too.
+Route = Tuple[str, "re.Pattern[str]", Callable[..., Any]]
 
 
 class ApiError(Exception):
@@ -298,7 +301,7 @@ class WebApplication:
             return 200, content_type, path.read_bytes()
 
         @self.route("GET", r"/api/docs")
-        def docs_index(**_: Any) -> Dict[str, Any]:
+        def docs_list(**_: Any) -> Dict[str, Any]:
             return {"ok": True, "documents": _list_docs()}
 
         @self.route("GET", r"/api/docs/(de|en)/([A-Za-z0-9._-]+)")
@@ -424,7 +427,7 @@ def _docs_nav_html(language: str, current: str = "") -> str:
 
     other = "en" if language == "de" else "de"
     home_label = "Zurück zur Oberfläche" if language == "de" else "Back to the interface"
-    items = [f'<a class="brand" href="/">BonBridge</a>', f'<a href="/">&larr; {home_label}</a>']
+    items = ['<a class="brand" href="/">BonBridge</a>', f'<a href="/">&larr; {home_label}</a>']
     items.append('<span class="spacer"></span>')
     for name, label in DOC_PAGES.get(language, []):
         active = ' class="active"' if name == current else ""
@@ -608,11 +611,11 @@ class WebServer(threading.Thread):
         self.application = WebApplication(app)
         self.httpd: Optional[ThreadingHTTPServer] = None
         self.last_error: Optional[str] = None
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
     def run(self) -> None:
         delay = 1.0
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 httpd = ThreadingHTTPServer((self.bind, self.port), _RequestHandler)
                 httpd.daemon_threads = True
@@ -624,7 +627,7 @@ class WebServer(threading.Thread):
             except OSError as exc:
                 self.last_error = str(exc)
                 log.warning("Cannot bind web interface to %s:%s: %s", self.bind, self.port, exc)
-                self._stop.wait(delay)
+                self._stop_event.wait(delay)
                 delay = min(delay * 2, 30.0)
                 continue
             try:
@@ -639,7 +642,7 @@ class WebServer(threading.Thread):
                 self.httpd = None
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
         if self.httpd is not None:
             try:
                 self.httpd.shutdown()

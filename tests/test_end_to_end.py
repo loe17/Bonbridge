@@ -63,6 +63,42 @@ def get_json(path: str, method: str = "GET", payload=None):
         return body.decode("utf-8", "replace")
 
 
+def check_thread_subclasses() -> None:
+    """Our Thread subclasses must not shadow attributes of threading.Thread.
+
+    Python 3.13 gave ``threading.Thread`` a private ``_handle`` attribute, which
+    silently overwrote a method of the same name in the ENPC responder and
+    killed the thread at runtime.  ``_stop`` is the same trap (Thread._stop is a
+    method, we used to assign an Event).  This test makes the whole class of bug
+    impossible to reintroduce, on every Python version.
+    """
+    import threading
+
+    from bonbridge.discovery import EnpcResponder
+    from bonbridge.jobs import PrinterWorker
+    from bonbridge.raw_server import RawListenerSupervisor
+    from bonbridge.web.server import WebServer
+
+    reserved = {name for name in dir(threading.Thread)}
+    for cls in (EnpcResponder, PrinterWorker, RawListenerSupervisor, WebServer):
+        # Only private single-underscore names matter; dunders are compiler
+        # bookkeeping (3.13 adds __firstlineno__ / __static_attributes__).
+        own = {
+            name
+            for name in vars(cls)
+            if name.startswith("_") and not name.startswith("__")
+        }
+        clashes = sorted(own & reserved)
+        check(not clashes, f"{cls.__name__} does not shadow Thread attributes ({clashes})")
+
+    # Attributes assigned in __init__ must not shadow Thread members either -
+    # that is exactly how "self._stop = Event()" broke join()/is_alive().
+    thread_methods = {name for name, value in vars(threading.Thread).items() if callable(value)}
+    probe = RawListenerSupervisor("t", "127.0.0.1", 1, lambda *args: None)
+    shadowed = sorted(name for name in vars(probe) if name in thread_methods)
+    check(not shadowed, f"instance attributes do not shadow Thread methods ({shadowed})")
+
+
 def main() -> int:
     printer = MockPrinter("127.0.0.1", PRINTER_PORT).start()
     print(f"mock printer on 127.0.0.1:{PRINTER_PORT}")
@@ -93,6 +129,9 @@ def main() -> int:
     time.sleep(2.0)
 
     try:
+        # 0. structural check that survives Python upgrades
+        check_thread_subclasses()
+
         # 1. the RAW listener accepts a job like a POS application would
         payload = b"\x1b@Bestellung Tisch 4\n2x Cola\n1x Pommes\n\n\n"
         with socket.create_connection(("127.0.0.1", RAW_PORT), timeout=5) as sock:
@@ -120,7 +159,7 @@ def main() -> int:
 
         # 4. status read-back really works (mock answers DLE EOT)
         before = len(printer.data)
-        get_json(f"/api/printers/theke1/refresh", method="POST")
+        get_json("/api/printers/theke1/refresh", method="POST")
         time.sleep(0.5)
         status = get_json("/api/printers/theke1")["printer"]["status"]
         check("paper" in status and "offline" in status, "DLE EOT status decoded")

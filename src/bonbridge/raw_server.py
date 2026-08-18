@@ -207,11 +207,11 @@ class RawListenerSupervisor(threading.Thread):
         self.options = options
         self.server: Optional[RawServer] = None
         self.last_error: Optional[str] = None
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
     def run(self) -> None:
         delay = 1.0
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 self.server = RawServer(
                     self.printer_id, self.bind, self.port, self.deliver, **self.options
@@ -221,7 +221,7 @@ class RawListenerSupervisor(threading.Thread):
             except OSError as exc:
                 self.last_error = f"cannot bind {self.bind}:{self.port}: {exc}"
                 log.warning("[%s] %s (retrying)", self.printer_id, self.last_error)
-                self._stop.wait(delay)
+                self._stop_event.wait(delay)
                 delay = min(delay * 2, 30.0)
                 continue
 
@@ -234,11 +234,11 @@ class RawListenerSupervisor(threading.Thread):
                 self.server = None
                 if server is not None:
                     server.shutdown_now()
-            if not self._stop.is_set():
-                self._stop.wait(1.0)
+            if not self._stop_event.is_set():
+                self._stop_event.wait(1.0)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
         if self.server is not None:
             self.server.shutdown_now()
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 __all__ = ["render", "render_document", "extract_title", "build_toc"]
 

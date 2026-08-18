@@ -135,7 +135,7 @@ class EnpcResponder(threading.Thread):
         self.model_name = model_name
 
         self._sock: Optional[socket.socket] = None
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._local_cache: Optional[set] = None
 
@@ -163,16 +163,16 @@ class EnpcResponder(threading.Thread):
             return
 
         log.info("ENPC discovery responder listening on %s:%s", self.bind, self.port)
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 data, peer = self._sock.recvfrom(4096)
             except socket.timeout:
                 continue
             except OSError as exc:
-                if not self._stop.is_set():
+                if not self._stop_event.is_set():
                     log.debug("ENPC receive failed: %s", exc)
                 continue
-            self._handle(data, peer)
+            self._handle_datagram(data, peer)
 
         try:
             if self._sock:
@@ -182,7 +182,7 @@ class EnpcResponder(threading.Thread):
 
     # ------------------------------------------------------------------
 
-    def _handle(self, data: bytes, peer: tuple) -> None:
+    def _handle_datagram(self, data: bytes, peer: tuple) -> None:
         frame = parse_frame(data)
         peer_text = f"{peer[0]}:{peer[1]}"
         self.last_peer = peer_text
@@ -302,7 +302,7 @@ class EnpcResponder(threading.Thread):
     # ------------------------------------------------------------------
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:

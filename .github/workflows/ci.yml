@@ -14,8 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         # 3.9 = Debian 11 (bullseye), 3.11 = Debian 12 (bookworm),
-        # 3.13 = Debian 13 (trixie) / current Ubuntu
-        python-version: ["3.9", "3.11", "3.13"]
+        # 3.12 = Ubuntu 24.04, 3.13 = Debian 13 (trixie) / current Ubuntu.
+        # 3.12 is where typing.Pattern was removed - keep it in the matrix.
+        python-version: ["3.9", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 

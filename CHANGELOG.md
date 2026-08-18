@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-08-18
+
+### Fixed
+
+- **Python 3.12 and 3.13 could not import the web server.** `typing.Pattern`
+  was removed in Python 3.12; the routing table used it. Replaced with
+  `re.Pattern`. This is why CI passed on 3.9 and 3.11 but failed on 3.13.
+- **The discovery responder died on Python 3.13.** `threading.Thread` gained a
+  private `_handle` attribute in 3.13, which silently overwrote the responder's
+  method of the same name - the thread crashed with
+  `'_thread._ThreadHandle' object is not callable` on the first probe. The
+  method was renamed, and the same latent trap was removed everywhere else:
+  three thread classes assigned `self._stop = Event()`, shadowing
+  `Thread._stop`, which would break `join()` and `is_alive()`.
+- Ruff findings cleaned up: unused imports, an f-string without placeholders,
+  and two route handlers sharing a function name.
+
+### Added
+
+- **A structural test that makes this class of bug impossible to reintroduce.**
+  It asserts that no `threading.Thread` subclass shadows a Thread attribute,
+  on whatever Python version it runs - so a future release adding another
+  private attribute is caught by the test rather than in production.
+- **Python 3.12 added to the CI matrix** (3.9, 3.11, 3.12, 3.13). 3.12 is where
+  `typing.Pattern` disappeared; testing it would have caught this before the
+  release.
+
+Verified by running the full end-to-end suite (66 checks) on real 3.9, 3.11,
+3.12 and 3.13 interpreters.
+
 ## [1.1.0] - 2026-08-18
 
 ### Added
@@ -210,6 +240,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.1.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.1
 [1.1.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.0
 [1.0.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.0.1
 [1.0.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.0.0
