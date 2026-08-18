@@ -1,0 +1,54 @@
+# Fallback profile for unknown 80 mm ESC/POS printers
+# (Munbyn, Zjiang, XPrinter, Equip, Rongta and compatible).
+id: generic-80mm
+name: Generic 80 mm ESC/POS
+vendor: Generic
+based_on: default
+width_mm: 80
+
+fonts:
+  "0":
+    name: Font A
+    columns: 42
+  "1":
+    name: Font B
+    columns: 56
+
+media:
+  dpi: 203
+  width:
+    mm: 80
+    pixels: 576
+
+features:
+  barcodeA: true
+  barcodeB: true
+  bitImageColumn: true
+  bitImageRaster: true
+  graphics: true
+  highDensity: true
+  paperFullCut: true
+  paperPartCut: true
+  pdf417Code: false
+  pulseBel: false
+  pulseStandard: true
+  qrCode: true
+  starCommands: false
+
+codePages:
+  "0": CP437
+  "2": CP850
+  "16": CP1252
+  "19": CP858
+
+usb_products: []
+usb_ids: []
+
+notes_de: |
+  Sammelprofil fuer unbekannte 80-mm-Drucker. Wenn Umlaute falsch gedruckt
+  werden, im Kassensystem cp1252 oder cp858 einstellen. Wenn der Cutter nicht
+  vorhanden ist, die Funktion in der Weboberflaeche abschalten.
+notes_en: |
+  Catch-all profile for unknown 80 mm printers. If accented characters print
+  incorrectly, select cp1252 or cp858 in the POS application. If the printer
+  has no cutter, disable that feature in the web interface.

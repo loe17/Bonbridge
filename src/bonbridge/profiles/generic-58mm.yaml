@@ -1,0 +1,53 @@
+# Fallback profile for unknown 58 mm ESC/POS printers.
+id: generic-58mm
+name: Generic 58 mm ESC/POS
+vendor: Generic
+based_on: default
+width_mm: 58
+
+fonts:
+  "0":
+    name: Font A
+    columns: 32
+  "1":
+    name: Font B
+    columns: 42
+
+media:
+  dpi: 203
+  width:
+    mm: 58
+    pixels: 384
+
+features:
+  barcodeA: true
+  barcodeB: true
+  bitImageColumn: true
+  bitImageRaster: true
+  graphics: true
+  highDensity: true
+  paperFullCut: false
+  paperPartCut: true
+  pdf417Code: false
+  pulseBel: false
+  pulseStandard: true
+  qrCode: true
+  starCommands: false
+
+codePages:
+  "0": CP437
+  "2": CP850
+  "16": CP1252
+  "19": CP858
+
+usb_products: []
+usb_ids: []
+
+notes_de: |
+  Sammelprofil fuer unbekannte 58-mm-Drucker. Viele Geraete dieser Klasse
+  haben keinen Cutter und keine Kassenladen-Buchse - beides in der
+  Weboberflaeche abschalten, wenn es nicht vorhanden ist.
+notes_en: |
+  Catch-all profile for unknown 58 mm printers. Many of them have neither a
+  cutter nor a cash drawer connector - switch both off in the web interface if
+  the hardware does not have them.

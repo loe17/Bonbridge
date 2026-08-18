@@ -1,0 +1,24 @@
+# BonBridge udev rules
+#
+# 1. Give members of the "lp" group access to USB printers, so BonBridge can
+#    also be run without root if you choose to.
+# 2. Nudge the daemon when a printer is plugged in or out, so the web
+#    interface shows the change immediately instead of after the next poll.
+#
+# Reload with:  sudo udevadm control --reload-rules
+
+# USB printer class devices
+SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="07", MODE="0664", GROUP="lp", TAG+="uaccess"
+SUBSYSTEM=="usbmisc", KERNEL=="lp[0-9]*", MODE="0664", GROUP="lp"
+
+# Known receipt printer vendors that use a vendor specific interface class
+# (Epson TM-m30 family, Star Micronics, Bixolon, generic POS printers).
+SUBSYSTEM=="usb", ATTR{idVendor}=="04b8", MODE="0664", GROUP="lp", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0519", MODE="0664", GROUP="lp", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="1504", MODE="0664", GROUP="lp", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0416", MODE="0664", GROUP="lp", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="0483", MODE="0664", GROUP="lp", TAG+="uaccess"
+
+# Serial adapters commonly used with receipt printers
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", MODE="0664", GROUP="dialout"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="067b", MODE="0664", GROUP="dialout"

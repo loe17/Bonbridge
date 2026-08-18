@@ -1,0 +1,28 @@
+[Unit]
+# Adds an additional IP address to a network interface so that several
+# printers can each be reached on port 9100 under their own address.
+#
+# OrderAssist (and most POS apps) identify a printer by IP address only - the
+# port is fixed at 9100.  One IP per printer is therefore the way to serve
+# several print groups (kitchen, bar, ...) from one BonBridge device.
+#
+# Usage - one unit instance per extra address.  The instance name is
+# <interface>-<address>-<prefixlen>:
+#
+#   sudo systemctl enable --now 'bonbridge-ip@eth0-192.168.1.51-24.service'
+#   sudo systemctl enable --now 'bonbridge-ip@wlan0-192.168.1.52-24.service'
+#
+# Choose addresses that are outside your router's DHCP range.
+Description=BonBridge additional IP address (%i)
+After=network-online.target
+Wants=network-online.target
+Before=bonbridge.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/bonbridge/packaging/bin/bonbridge-ip add %i
+ExecStop=/opt/bonbridge/packaging/bin/bonbridge-ip del %i
+
+[Install]
+WantedBy=multi-user.target

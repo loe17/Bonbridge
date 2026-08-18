@@ -1,0 +1,54 @@
+BonBridge - third party components
+==================================
+
+BonBridge bundles ("vendors") the components below so that installing it never
+depends on a third-party repository staying online. Their licences apply to the
+bundled copies; BonBridge's own code is MIT (see LICENSE).
+
+Each vendored directory contains a VENDORED_COMMIT file recording the exact
+upstream revision the copy was taken from.
+
+
+1. zj-58  ->  vendor/zj-58/
+--------------------------------------------------------------------------
+   CUPS raster filter for ESC/POS thermal printers (ZJ-58 / ZJ-80 and
+   compatible), used by the optional CUPS module.
+
+   Upstream: https://github.com/klirichek/zj-58
+   Copyright (c) 2014 Aleksey N. Vinogradov
+   Licence: BSD 2-Clause "Simplified" License  (see vendor/zj-58/LICENSE)
+
+
+2. escpos-printer-db  ->  vendor/escpos-printer-db/
+--------------------------------------------------------------------------
+   Community maintained capability database for ESC/POS receipt printers
+   (fonts, columns, code pages, cutter/barcode/QR support). BonBridge uses
+   the compiled dist/capabilities.json to identify attached printers and to
+   derive the recommended POS settings.
+
+   Upstream: https://github.com/receipt-print-hq/escpos-printer-db
+   Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+            (see vendor/escpos-printer-db/LICENSE.md)
+   Attribution: escpos-printer-db contributors,
+                https://github.com/receipt-print-hq/escpos-printer-db
+
+
+Runtime dependencies (NOT bundled, installed from the distribution)
+--------------------------------------------------------------------------
+   python3            - PSF License
+   python3-yaml       - MIT
+   python3-usb (pyusb)- BSD 3-Clause
+   python3-serial     - BSD 3-Clause
+   libusb-1.0         - LGPL-2.1-or-later
+   avahi-daemon       - LGPL-2.1-or-later (optional)
+   cups               - Apache-2.0 (optional)
+
+
+Protocol references
+--------------------------------------------------------------------------
+   ESC/POS is a trademark of Seiko Epson Corporation. BonBridge implements
+   the publicly documented command set described in the Epson ESC/POS
+   command reference and is not affiliated with or endorsed by Seiko Epson.
+
+   OrderAssist is a product of its respective owner. BonBridge is an
+   independent project and is not affiliated with or endorsed by it.

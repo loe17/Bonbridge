@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BonBridge</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+  --fg:#e8eaed; --muted:#9aa3b2; --accent:#4f9cf9;
+  --ok:#3ecf8e; --warn:#f5b451; --err:#f2555a; --unknown:#7a8194;
+  --radius:10px;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f5f6f8; --panel:#ffffff; --panel2:#f0f2f5; --line:#dfe3e9;
+         --fg:#1a1d23; --muted:#5b6472; --unknown:#98a0ad; }
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:.7rem 1rem;
+       display:flex;align-items:center;gap:1rem;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+header h1{font-size:1.1rem;margin:0;letter-spacing:.3px}
+header h1 small{color:var(--muted);font-weight:400;font-size:.75rem;margin-left:.4rem}
+nav{display:flex;gap:.25rem;flex-wrap:wrap;margin-left:auto}
+nav button{background:transparent;border:1px solid transparent;color:var(--muted);
+           padding:.4rem .7rem;border-radius:var(--radius);cursor:pointer;font-size:.9rem}
+nav button:hover{color:var(--fg);background:var(--panel2)}
+nav button.active{color:var(--fg);background:var(--panel2);border-color:var(--line)}
+main{padding:1rem;max-width:1100px;margin:0 auto}
+section{display:none}
+section.active{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+      padding:1rem;margin-bottom:1rem}
+.card h2{margin:0 0 .6rem;font-size:1rem}
+.card h3{margin:1rem 0 .4rem;font-size:.92rem;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.row{display:flex;gap:1rem;flex-wrap:wrap}
+.row>*{flex:1 1 260px;min-width:0}
+.dot{display:inline-block;width:.72rem;height:.72rem;border-radius:50%;margin-right:.45rem;vertical-align:-1px}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)}
+.dot.error{background:var(--err)} .dot.offline{background:var(--err)}
+.dot.unknown{background:var(--unknown)}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;width:38%}
+button.act{background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+           padding:.45rem .8rem;border-radius:var(--radius);cursor:pointer;font-size:.88rem}
+button.act:hover{border-color:var(--accent)}
+button.act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.act.danger:hover{border-color:var(--err);color:var(--err)}
+button.act:disabled{opacity:.5;cursor:not-allowed}
+.btnbar{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.7rem}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
+    padding:.7rem;overflow:auto;font-size:.8rem;max-height:420px;white-space:pre-wrap;word-break:break-word}
+code{background:var(--panel2);padding:.1rem .35rem;border-radius:4px;font-size:.86rem}
+.big{font-size:1.5rem;font-weight:600;letter-spacing:.5px}
+.muted{color:var(--muted)}
+.tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);
+     border-radius:999px;padding:.1rem .55rem;font-size:.76rem;color:var(--muted);margin-right:.3rem}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+       border-radius:var(--radius);padding:.4rem .55rem;font:inherit;width:100%}
+label{display:block;font-size:.82rem;color:var(--muted);margin:.55rem 0 .2rem}
+.switch{display:flex;align-items:center;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--line)}
+.switch:last-child{border-bottom:none}
+.switch .name{flex:1}
+.switch select{width:auto;min-width:9rem}
+#toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:var(--panel);
+       border:1px solid var(--line);border-radius:var(--radius);padding:.6rem 1rem;
+       box-shadow:0 6px 24px rgba(0,0,0,.35);display:none;z-index:50;max-width:90vw}
+#toast.err{border-color:var(--err)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
+.kv{font-size:.9rem}
+.kv div{display:flex;justify-content:space-between;gap:1rem;padding:.22rem 0;border-bottom:1px dashed var(--line)}
+.kv div:last-child{border-bottom:none}
+.kv span:first-child{color:var(--muted)}
+.copy{cursor:pointer;border-bottom:1px dotted var(--muted)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>BonBridge <small id="hdrHost"></small></h1>
+  <nav>
+    <button data-tab="overview" class="active" data-i18n="tab.overview">Übersicht</button>
+    <button data-tab="printers" data-i18n="tab.printers">Drucker</button>
+    <button data-tab="features" data-i18n="tab.features">Funktionen</button>
+    <button data-tab="diag" data-i18n="tab.diag">Diagnose</button>
+    <button data-tab="connect" data-i18n="tab.connect">Anbindung</button>
+    <button data-tab="system" data-i18n="tab.system">System</button>
+  </nav>
+  <select id="lang" style="width:auto"><option value="de">DE</option><option value="en">EN</option></select>
+</header>
+
+<main>
+  <section id="overview" class="active"></section>
+  <section id="printers"></section>
+  <section id="features"></section>
+  <section id="diag"></section>
+  <section id="connect"></section>
+  <section id="system"></section>
+</main>
+
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

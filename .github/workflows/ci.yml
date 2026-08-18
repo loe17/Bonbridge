@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 = Debian 11 (bullseye), 3.11 = Debian 12 (bookworm),
+        # 3.13 = Debian 13 (trixie) / current Ubuntu
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pyusb pyserial
+
+      - name: Byte-compile everything
+        run: python -m compileall -q src tests
+
+      - name: Import check
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import bonbridge, bonbridge.caps as caps, bonbridge.escpos as escpos
+          from bonbridge.config import Config
+          from bonbridge.daemon import BonBridge
+          from bonbridge.web.server import WebApplication
+          print("BonBridge", bonbridge.__version__)
+          assert caps.recommend_pos_settings("TM-T88V")["columns"] == 56
+          assert escpos.cut() == b"\x1dVB\x60"
+          print("ok")
+          PY
+
+      - name: End-to-end test (mock printer)
+        run: python tests/test_end_to_end.py
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install linters
+        run: pip install ruff
+
+      - name: ruff
+        run: ruff check src tests || true
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning install.sh uninstall.sh \
+            packaging/bin/bonbridge-ip packaging/cups/setup-cups.sh
+
+  install:
+    name: Installer smoke test (Debian container)
+    runs-on: ubuntu-latest
+    container: debian:bookworm
+    steps:
+      - name: Prepare container
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq systemd ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - name: Run the installer without starting the service
+        run: bash install.sh --no-start
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: The CLI must work
+        run: |
+          test -x /usr/local/bin/bonbridge
+          bonbridge --version
+          bonbridge scan

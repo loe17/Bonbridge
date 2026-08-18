@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check that VERSION matches the tag
+        run: |
+          FILE_VERSION="$(cat VERSION | tr -d '[:space:]')"
+          if [ "$FILE_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "VERSION file says '$FILE_VERSION' but the tag says '${{ steps.version.outputs.version }}'" >&2
+            exit 1
+          fi
+          grep -q "__version__ = \"$FILE_VERSION\"" src/bonbridge/__init__.py \
+            || { echo "__init__.py version mismatch" >&2; exit 1; }
+
+      - name: Build the offline archive
+        run: |
+          NAME="bonbridge-${{ steps.version.outputs.version }}"
+          mkdir -p "dist/$NAME"
+          cp -a src vendor docs packaging install.sh uninstall.sh \
+                LICENSE NOTICE README.md README.de.md CHANGELOG.md VERSION "dist/$NAME/"
+          tar -czf "dist/$NAME.tar.gz" -C dist "$NAME"
+          (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          ls -la dist
+
+      - name: Extract the changelog section
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[?" v "\\]?" {found=1; next}
+            found && /^## / {exit}
+            found {print}
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release ${{ steps.version.outputs.tag }}" > release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: BonBridge ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256

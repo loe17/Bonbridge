@@ -1,37 +1,31 @@
 #!/usr/bin/env bash
+#
+# Compatibility shim.
+#
+# The old project used "git pull && bash update.sh" to rebuild the CUPS filter
+# and restart socat.  BonBridge updates by simply running the installer again:
+# it stops the service, replaces /opt/bonbridge, keeps /etc/bonbridge/config.yaml
+# and starts the service back up.
+#
+# This file exists so that anyone following the old instructions still ends up
+# with a working system.
+#
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-WORKDIR="/opt/rpi-escpos-printserver"
-ZJ_DIR="${WORKDIR}/zj-58"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-echo "== Update: Repo + zj-58 + Services =="
+echo "==> BonBridge update"
+echo "    (update.sh is deprecated - install.sh is now also the updater)"
+echo
 
-cd "${REPO_DIR}"
-echo "== git pull =="
-git pull --ff-only
-
-echo "== apt update (keine Upgrades) =="
-sudo apt update
-
-echo "== Update & Rebuild zj-58 =="
-sudo mkdir -p "${WORKDIR}"
-if [[ ! -d "${ZJ_DIR}" ]]; then
-  sudo git clone https://github.com/klirichek/zj-58.git "${ZJ_DIR}"
-else
-  sudo git -C "${ZJ_DIR}" pull --ff-only
+if [ "$(id -u)" -ne 0 ]; then
+  echo "please run as root:  sudo bash update.sh" >&2
+  exit 1
 fi
 
-sudo mkdir -p "${ZJ_DIR}/build"
-cd "${ZJ_DIR}/build"
-sudo cmake ..
-sudo make -j"$(nproc)"
-sudo make install
+if [ -d "$SCRIPT_DIR/.git" ]; then
+  echo "==> git pull"
+  git -C "$SCRIPT_DIR" pull --ff-only || echo "    (git pull failed, continuing with the local files)"
+fi
 
-echo "== Restart services =="
-sudo systemctl restart cups || true
-sudo systemctl restart socket-9100 || true
-
-echo "== Status =="
-sudo netstat -tlnp | egrep ':(631|9100)\s' || true
-echo "Done."
+exec bash "$SCRIPT_DIR/install.sh" "$@"

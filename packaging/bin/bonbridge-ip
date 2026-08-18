@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Add or remove an additional IP address, used by bonbridge-ip@.service.
+#
+#   bonbridge-ip add eth0-192.168.1.51-24
+#   bonbridge-ip del eth0-192.168.1.51-24
+#
+# The odd "interface-address-prefix" form exists because systemd instance
+# names cannot contain slashes.
+#
+set -euo pipefail
+
+ACTION="${1:-}"
+SPEC="${2:-}"
+
+usage() {
+  echo "usage: $0 {add|del} <interface>-<address>-<prefixlen>" >&2
+  echo "example: $0 add eth0-192.168.1.51-24" >&2
+  exit 2
+}
+
+[ -n "$ACTION" ] && [ -n "$SPEC" ] || usage
+
+IFACE="${SPEC%%-*}"
+REST="${SPEC#*-}"
+ADDRESS="${REST%-*}"
+PREFIX="${REST##*-}"
+
+[ -n "$IFACE" ] && [ -n "$ADDRESS" ] && [ -n "$PREFIX" ] || usage
+case "$PREFIX" in
+  ''|*[!0-9]*) usage ;;
+esac
+
+if ! ip link show "$IFACE" >/dev/null 2>&1; then
+  echo "interface '$IFACE' does not exist" >&2
+  exit 1
+fi
+
+case "$ACTION" in
+  add) exec ip addr replace "${ADDRESS}/${PREFIX}" dev "$IFACE" ;;
+  del) exec ip addr del "${ADDRESS}/${PREFIX}" dev "$IFACE" ;;
+  *)   usage ;;
+esac

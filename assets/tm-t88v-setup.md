@@ -1,27 +1,21 @@
-# Epson TM-T88V – USB & ESC/POS Modus prüfen (wichtig!)
+# Epson TM-T88V setup (moved)
 
-## 1) Interface-Modul
-Der TM-T88V hat ein austauschbares Interface-Board (UB-Board).
-Für USB brauchst du eine Typ-B USB-Buchse (z. B. UB-U05/UB-U03II/UB-U06).
+This page has been replaced by the full documentation:
 
-## 2) Self-Test drucken (Kontrolle)
-Drucker AUS → FEED gedrückt halten → Drucker EIN → FEED halten bis Ausdruck kommt.
-Auf dem Ausdruck prüfen:
-- INTERFACE = USB (oder vergleichbar)
-- MODE = ESC/POS
+* **Deutsch:** [`../docs/de/03-drucker-konfiguration.md`](../docs/de/03-drucker-konfiguration.md)
+* **English:** [`../docs/en/03-printer-setup.md`](../docs/en/03-printer-setup.md)
 
-## 3) Wenn INTERFACE nicht USB ist
-Je nach Board/DIP-Konfiguration muss auf USB umgestellt werden.
-Nach Umstellung erneut Self-Test drucken und prüfen.
+Short version, unchanged:
 
-## 4) Wenn MODE nicht ESC/POS ist
-Im Setup/Configuration Menü auf ESC/POS umstellen (modellabhängig).
-Danach erneut Self-Test drucken.
+1. The TM-T88V needs a **USB interface board** (UB-U03II / UB-U05 / UB-U06).
+2. Print the **self test**: printer OFF → hold FEED → printer ON → keep
+   holding FEED until it prints.
+3. The printout must show `INTERFACE : USB` and `MODE : ESC/POS`.
+4. The printer needs its **own 24 V power supply** (PS-180). USB alone will
+   not power it and it will not enumerate.
+5. On the Pi, check with `lsusb`, `ls /dev/usb/` and `dmesg | tail -n 20` —
+   or simply run `bonbridge scan`.
 
-## 5) Kontrolle am Raspberry Pi
-Nach dem Anstecken muss /dev/usb/lp0 existieren:
-```bash
-ls /dev/usb/
-# -> lp0
-dmesg | tail -n 20
-
+> A missing `/dev/usb/lp0` is not necessarily a fault: some Epson models
+> present a vendor specific USB interface. BonBridge handles those through
+> libusb.

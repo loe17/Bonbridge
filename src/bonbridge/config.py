@@ -1,0 +1,285 @@
+"""Configuration handling.
+
+The configuration is a single YAML file (``/etc/bonbridge/config.yaml``).
+It is read at start-up and can be rewritten by the web interface.  Every
+value has a defined default so that a missing or partial file still yields a
+working daemon.
+
+PyYAML is used when available (``apt install python3-yaml``); if it is not,
+BonBridge falls back to a JSON file with the same schema so the daemon never
+becomes unusable because of a missing dependency.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import logging
+import os
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from . import paths
+
+log = logging.getLogger(__name__)
+
+try:  # pragma: no cover - depends on the host
+    import yaml
+
+    HAVE_YAML = True
+except ImportError:  # pragma: no cover
+    yaml = None  # type: ignore[assignment]
+    HAVE_YAML = False
+
+
+# --------------------------------------------------------------------------
+# Defaults
+# --------------------------------------------------------------------------
+
+#: OrderAssist (and most other POS apps) address a printer as ``<ip>:9100``
+#: with no way to change the port.  9100 is therefore the default and should
+#: only be changed for testing.
+DEFAULT_RAW_PORT = 9100
+
+DEFAULT_PRINTER_OPTIONS: Dict[str, Any] = {
+    # Append a paper cut after every job.  Most POS apps send their own cut
+    # command, so this is off by default.
+    "cut_after_job": False,
+    "cut_mode": "partial",  # partial | full
+    # Feed n lines before cutting / at the end of the job.
+    "feed_lines_after_job": 0,
+    # Fire the cash drawer pulse after every job.
+    "open_drawer_after_job": False,
+    "drawer_pin": 0,  # 0 = pin 2, 1 = pin 5
+    # Poll DLE EOT status in the background so the web interface can show
+    # paper / cover / error state.
+    "status_polling": True,
+    "status_interval": 10.0,
+    # Enable Automatic Status Back so the printer reports changes on its own.
+    "asb": False,
+    # Force a code page before each job (``None`` = leave the stream alone).
+    "force_codepage": None,
+    # Reset the printer (ESC @) before each job.
+    "reset_before_job": False,
+}
+
+DEFAULT_QUEUE_OPTIONS: Dict[str, Any] = {
+    "retry_seconds": 5.0,
+    "max_retries": 0,  # 0 = retry forever
+    "spool_on_error": True,
+    "max_spool_files": 200,
+    "job_timeout": 120.0,
+}
+
+#: Feature switches exposed in the web interface.  ``None`` means "use the
+#: automatically detected value"; ``True``/``False`` is an explicit override.
+FEATURE_KEYS = (
+    "cutter",
+    "cashdrawer",
+    "buzzer",
+    "barcode",
+    "qrcode",
+    "pdf417",
+    "graphics",
+    "nv_images",
+    "status_readback",
+)
+
+DEFAULTS: Dict[str, Any] = {
+    "version": 1,
+    "hostname_label": "",  # free text shown in the web interface
+    "web": {
+        "bind": "0.0.0.0",
+        "port": 8080,
+        "language": "de",  # de | en
+    },
+    "raw": {
+        "port": DEFAULT_RAW_PORT,
+        "max_connections": 8,
+    },
+    "discovery": {
+        "mdns": True,
+        # Experimental Epson ENPC responder (UDP 3289) so that the
+        # OrderAssist printer search can find the bridge.  Off by default,
+        # see docs/de/06-diagnose.md / docs/en/06-diagnostics.md.
+        "enpc": False,
+    },
+    "logging": {
+        "level": "INFO",
+        "keep_job_dumps": 20,
+    },
+    "printers": [],
+}
+
+DEFAULT_PRINTER: Dict[str, Any] = {
+    "id": "printer1",
+    "name": "Drucker 1",
+    "enabled": True,
+    # Which local IP address the RAW listener binds to.  ``0.0.0.0`` serves
+    # every address of the machine.  For several print groups on one device
+    # give each printer its own IP alias here (see docs).
+    "bind": "0.0.0.0",
+    "transport": {"type": "auto"},
+    "profile": "auto",
+    "features": {key: None for key in FEATURE_KEYS},
+    "options": dict(DEFAULT_PRINTER_OPTIONS),
+    "queue": dict(DEFAULT_QUEUE_OPTIONS),
+}
+
+
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+
+
+def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge ``override`` into a copy of ``base``."""
+    result = copy.deepcopy(base)
+    for key, value in (override or {}).items():
+        if isinstance(value, dict) and isinstance(result.get(key), dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def normalise_printer(raw: Dict[str, Any], index: int = 0) -> Dict[str, Any]:
+    """Fill a printer entry with defaults and sanitise obvious mistakes."""
+    printer = _deep_merge(DEFAULT_PRINTER, raw or {})
+
+    if not printer.get("id"):
+        printer["id"] = f"printer{index + 1}"
+    printer["id"] = str(printer["id"]).strip().replace(" ", "-")
+    if not printer.get("name"):
+        printer["name"] = printer["id"]
+
+    transport = printer.get("transport") or {}
+    if not isinstance(transport, dict):
+        transport = {"type": "auto"}
+    transport.setdefault("type", "auto")
+    printer["transport"] = transport
+
+    features = printer.get("features") or {}
+    printer["features"] = {key: features.get(key) for key in FEATURE_KEYS}
+
+    printer["options"] = _deep_merge(DEFAULT_PRINTER_OPTIONS, printer.get("options") or {})
+    printer["queue"] = _deep_merge(DEFAULT_QUEUE_OPTIONS, printer.get("queue") or {})
+    return printer
+
+
+class Config:
+    """In-memory view of the configuration file."""
+
+    def __init__(self, data: Optional[Dict[str, Any]] = None, path: Optional[Path] = None):
+        self.path = Path(path) if path else paths.CONFIG_FILE
+        self.data = _deep_merge(DEFAULTS, data or {})
+        self.data["printers"] = [
+            normalise_printer(entry, i) for i, entry in enumerate(self.data.get("printers") or [])
+        ]
+        self._dedupe_ids()
+
+    # -- loading / saving --------------------------------------------------
+
+    @classmethod
+    def load(cls, path: Optional[Path] = None) -> "Config":
+        path = Path(path) if path else paths.CONFIG_FILE
+        if not path.exists():
+            log.info("No configuration at %s - starting with defaults", path)
+            return cls(path=path)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            log.error("Cannot read %s: %s - using defaults", path, exc)
+            return cls(path=path)
+
+        data: Any = None
+        if HAVE_YAML:
+            try:
+                data = yaml.safe_load(text)
+            except Exception as exc:  # noqa: BLE001 - config errors must not crash
+                log.error("Invalid YAML in %s: %s", path, exc)
+        if data is None:
+            try:
+                data = json.loads(text)
+            except Exception:  # noqa: BLE001
+                pass
+        if not isinstance(data, dict):
+            log.error("Configuration %s is not a mapping - using defaults", path)
+            data = {}
+        return cls(data, path=path)
+
+    def save(self, path: Optional[Path] = None) -> Path:
+        """Atomically write the configuration back to disk."""
+        target = Path(path) if path else self.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if HAVE_YAML:
+            text = yaml.safe_dump(self.data, allow_unicode=True, sort_keys=False, indent=2)
+            header = (
+                "# BonBridge configuration\n"
+                "# Documentation: docs/de/05-weboberflaeche.md\n"
+                "# Changes take effect after: systemctl restart bonbridge\n"
+            )
+            text = header + text
+        else:  # pragma: no cover - only without PyYAML
+            text = json.dumps(self.data, indent=2, ensure_ascii=False)
+
+        fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=".config-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.replace(tmp_name, target)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+        log.info("Configuration written to %s", target)
+        return target
+
+    # -- accessors ---------------------------------------------------------
+
+    @property
+    def printers(self) -> List[Dict[str, Any]]:
+        return self.data["printers"]
+
+    def printer(self, printer_id: str) -> Optional[Dict[str, Any]]:
+        for entry in self.printers:
+            if entry["id"] == printer_id:
+                return entry
+        return None
+
+    def add_printer(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        printer = normalise_printer(raw, len(self.printers))
+        self.printers.append(printer)
+        self._dedupe_ids()
+        return printer
+
+    def remove_printer(self, printer_id: str) -> bool:
+        before = len(self.printers)
+        self.data["printers"] = [p for p in self.printers if p["id"] != printer_id]
+        return len(self.printers) != before
+
+    def update_printer(self, printer_id: str, patch: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        for index, entry in enumerate(self.printers):
+            if entry["id"] == printer_id:
+                merged = _deep_merge(entry, patch or {})
+                self.printers[index] = normalise_printer(merged, index)
+                self._dedupe_ids()
+                return self.printers[index]
+        return None
+
+    def _dedupe_ids(self) -> None:
+        seen = set()  # type: ignore[var-annotated]
+        for index, entry in enumerate(self.printers):
+            candidate = entry["id"]
+            suffix = 2
+            while candidate in seen:
+                candidate = f"{entry['id']}-{suffix}"
+                suffix += 1
+            entry["id"] = candidate
+            seen.add(candidate)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return copy.deepcopy(self.data)

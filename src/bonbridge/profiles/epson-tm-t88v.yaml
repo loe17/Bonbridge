@@ -1,0 +1,36 @@
+# BonBridge printer profile
+# Extends the escpos-printer-db entry "TM-T88V" with identification hints and
+# the setup notes shown in the web interface.
+id: TM-T88V
+name: Epson TM-T88V
+vendor: Epson
+based_on: TM-T88V
+width_mm: 80
+
+# Matched against the USB manufacturer/product strings and the IEEE-1284 ID.
+usb_products:
+  - TM-T88V
+  - TM-T88
+
+# Known USB IDs are hints only; identification primarily uses the descriptor
+# strings because Epson reuses product IDs across the TM-T88 series.
+usb_ids: []
+
+notes_de: |
+  Der TM-T88V hat ein austauschbares Interface-Board (UB-Board):
+  UB-U03II/U05/U06 = USB, UB-S01 = RS-232, UB-E04 = Ethernet, UB-R04 = WLAN.
+  Fuer BonBridge per USB muss das Board ein USB-Board sein und der Drucker im
+  Modus ESC/POS laufen. Selbsttest: Drucker AUS, FEED gedrueckt halten,
+  Drucker EIN, FEED halten bis der Ausdruck kommt. Auf dem Ausdruck muessen
+  INTERFACE = USB und MODE = ESC/POS stehen.
+  Der Drucker braucht zwingend sein eigenes 24-V-Netzteil (PS-180); ueber USB
+  allein meldet er sich nicht am Rechner an.
+notes_en: |
+  The TM-T88V uses an exchangeable interface board (UB board):
+  UB-U03II/U05/U06 = USB, UB-S01 = RS-232, UB-E04 = Ethernet, UB-R04 = Wi-Fi.
+  For BonBridge over USB the board must be a USB board and the printer must be
+  in ESC/POS mode. Self test: printer OFF, hold FEED, printer ON, keep holding
+  FEED until it prints. The printout must show INTERFACE = USB and
+  MODE = ESC/POS.
+  The printer requires its own 24 V power supply (PS-180); USB alone will not
+  power it and it will not enumerate.

@@ -1,0 +1,34 @@
+# BonBridge printer profile
+# The TM-m30 family (incl. TM-M244A) does NOT present a USB printer class
+# interface on every firmware revision, so /dev/usb/lp0 may never appear.
+# BonBridge therefore prefers the libusb transport for these devices.
+id: TM-m30III
+name: Epson TM-m30III / TM-M244A
+vendor: Epson
+based_on: TM-m30III
+width_mm: 80
+
+usb_products:
+  - TM-m30
+  - TM-m30III
+  - TM-M244
+  - M244A
+
+usb_ids: []
+
+notes_de: |
+  Diese Modelle melden sich je nach Firmware nicht als USB-Printer-Class,
+  sondern vendor-spezifisch oder als CDC-ACM (/dev/ttyACM0). BonBridge nutzt
+  deshalb bevorzugt den Transport "usb" (libusb) statt "usblp".
+  Ohne 24-V-Netzteil erfolgt keine USB-Anmeldung.
+  Die Modelle haben ausserdem eigene Netzwerkschnittstellen - wenn LAN oder
+  WLAN genutzt wird, kann das Kassensystem direkt mit dem Drucker sprechen und
+  BonBridge dient nur noch der Ueberwachung.
+notes_en: |
+  Depending on the firmware these models do not expose a USB printer class
+  interface but a vendor specific one, or a CDC-ACM port (/dev/ttyACM0).
+  BonBridge therefore prefers the "usb" (libusb) transport over "usblp".
+  Without the 24 V power supply the printer will not enumerate over USB.
+  These models also have built-in network interfaces - when Ethernet or Wi-Fi
+  is used the POS application can talk to the printer directly and BonBridge
+  is only needed for monitoring.
