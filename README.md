@@ -16,7 +16,7 @@ Ethernet interface, plus a web interface for status, diagnostics and setup.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```
 
 That is the whole installation. It works on
@@ -92,9 +92,15 @@ Details: [`docs/en/04-pos-integration.md`](docs/en/04-pos-integration.md)
 | Diagnostics & FAQ | [06-diagnostics.md](docs/en/06-diagnostics.md) | [06-diagnose.md](docs/de/06-diagnose.md) |
 | Several print groups | [07-print-groups.md](docs/en/07-print-groups.md) | [07-ausdruckgruppen.md](docs/de/07-ausdruckgruppen.md) |
 | Architecture | [08-architecture.md](docs/en/08-architecture.md) | [08-architektur.md](docs/de/08-architektur.md) |
+| **Third-party code & sources** | [09-references.md](docs/en/09-references.md) | [09-referenzen.md](docs/de/09-referenzen.md) |
 
 ## Licence
 
 MIT for BonBridge itself. Bundled components keep their own licences - see
-[`NOTICE`](NOTICE). BonBridge is not affiliated with Seiko Epson or with
+[`NOTICE`](NOTICE) and the annotated list in
+[`docs/en/09-references.md`](docs/en/09-references.md), which names every piece
+of third-party code, its licence and where it is used:
+[zj-58](https://github.com/klirichek/zj-58) (BSD-2-Clause, CUPS filter) and
+[escpos-printer-db](https://github.com/receipt-print-hq/escpos-printer-db)
+(CC BY 4.0, printer capability database). BonBridge is not affiliated with Seiko Epson or with
 OrderAssist.

@@ -6,8 +6,20 @@ commands below are used for diagnostics, test prints and the optional
 post-processing (cut / drawer pulse) configured per printer.
 
 References:
-  * Epson ESC/POS command reference, TM-T88V supported commands
+  * Epson ESC/POS command reference (command set, status bit layouts)
+    https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/index.html
+  * TM-T88V supported commands
     https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/tmt88v.html
+  * TM-T88V Technical Reference Guide (DIP switches, memory switches, boards)
+    https://files.support.epson.com/pdf/pos/bulk/tm-t88v_trg_en_revf.pdf
+  * Code page numbers cross-checked against escpos-printer-db (CC BY 4.0)
+    https://github.com/receipt-print-hq/escpos-printer-db
+  * The test page layout deliberately mirrors the OrderAssist test receipt
+    https://doku.order-assist.de/docs/handbuch/drucker/
+  * Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
+
+ESC/POS is a trademark of Seiko Epson Corporation.  This module implements
+only the publicly documented command set.
 """
 
 from __future__ import annotations

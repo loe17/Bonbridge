@@ -8,6 +8,10 @@
 # for CUPS and the POS application to interleave their output - which is
 # exactly what went wrong in the old CUPS + socat setup.
 #
+# The rasterising filter used here is zj-58 by Aleksey N. Vinogradov
+# (BSD 2-Clause), vendored at vendor/zj-58/ -> https://github.com/klirichek/zj-58
+# See docs/en/09-references.md for the full list of third-party code.
+#
 # Usage:  sudo bash setup-cups.sh [queue-name] [raw-port]
 #
 set -euo pipefail

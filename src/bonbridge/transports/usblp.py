@@ -4,6 +4,12 @@ Fallback for hosts without libusb/pyusb and for printers that behave well as
 plain USB printer class devices.  The device node is opened read/write so
 status read-back still works - unlike the old ``socat -u`` setup, which was
 write-only by construction.
+
+References
+----------
+* Linux ``usblp`` driver and the IEEE 1284 device ID exposed in sysfs
+  https://www.kernel.org/doc/html/latest/usb/index.html
+* Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
 from __future__ import annotations

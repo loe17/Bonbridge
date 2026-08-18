@@ -41,7 +41,7 @@ sudo lpadmin -x EPSON_TM-T88V
 ### 2. Install BonBridge
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```
 
 Add `--with-cups` if you also want to keep printing from desktop computers.
@@ -108,7 +108,7 @@ sudo lpadmin -x EPSON_TM-T88V
 ### 2. BonBridge installieren
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```
 
 Mit `--with-cups`, wenn zusätzlich vom Desktop gedruckt werden soll.

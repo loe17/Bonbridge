@@ -87,5 +87,5 @@ right away - then the device never needs a screen or keyboard.
 After that:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```

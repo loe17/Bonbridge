@@ -10,6 +10,7 @@
 | 06 | [Diagnose & FAQ](de/06-diagnose.md) | [Diagnostics & FAQ](en/06-diagnostics.md) |
 | 07 | [Mehrere Ausdruckgruppen](de/07-ausdruckgruppen.md) | [Several print groups](en/07-print-groups.md) |
 | 08 | [Architektur](de/08-architektur.md) | [Architecture](en/08-architecture.md) |
+| 09 | [Referenzen: Fremdcode & Quellen](de/09-referenzen.md) | [References: third-party code & sources](en/09-references.md) |
 
 Diagrams: [`img/wiring-usb.svg`](img/wiring-usb.svg) ·
 [`img/architecture.svg`](img/architecture.svg)

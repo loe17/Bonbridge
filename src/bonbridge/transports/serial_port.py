@@ -6,6 +6,13 @@ models (for example the TM-M244A) expose instead of a printer class
 interface.
 
 Requires ``python3-serial`` (pyserial).
+
+References
+----------
+* pySerial (BSD-3-Clause)  https://github.com/pyserial/pyserial
+* Epson UB-S01 serial interface board settings: TM-T88V Technical Reference
+  Guide  https://files.support.epson.com/pdf/pos/bulk/tm-t88v_trg_en_revf.pdf
+* Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
 from __future__ import annotations

@@ -88,5 +88,5 @@ konfigurieren – dann braucht das Gerät nie Bildschirm oder Tastatur.
 Danach genügt:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```

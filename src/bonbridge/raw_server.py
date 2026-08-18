@@ -11,6 +11,15 @@ Job segmentation: data is collected until the client closes the connection or
 stays silent for ``idle_timeout`` seconds.  That covers both the
 "connect - send - disconnect" pattern and applications that keep the socket
 open between receipts.
+
+References
+----------
+* RAW / JetDirect on port 9100 is a de-facto convention rather than a
+  standard; the closest formal relative is RFC 1179 (LPD)
+  https://datatracker.ietf.org/doc/html/rfc1179
+* Counterpart on the client side: the CUPS ``socket`` backend
+  https://www.cups.org/doc/network.html
+* Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
 from __future__ import annotations

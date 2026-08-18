@@ -2,7 +2,7 @@
 #
 # BonBridge one-command installer
 #
-#   curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 #
 # or, from a checkout:
 #
@@ -10,6 +10,7 @@
 #
 # Options (environment variables or flags):
 #   --with-cups        also install CUPS and the vendored zj-58 filter
+#                      (zj-58, BSD-2-Clause, https://github.com/klirichek/zj-58)
 #   --branch NAME      install from this git branch instead of the default
 #   --no-start         install but do not start the service
 #   --web-port N       web interface port (default 8080)
@@ -21,7 +22,7 @@
 set -euo pipefail
 
 REPO_OWNER="${BONBRIDGE_REPO_OWNER:-loe17}"
-REPO_NAME="${BONBRIDGE_REPO_NAME:-bonbridge}"
+REPO_NAME="${BONBRIDGE_REPO_NAME:-Bonbridge}"
 BRANCH="${BONBRIDGE_BRANCH:-main}"
 INSTALL_DIR="${BONBRIDGE_INSTALL_DIR:-/opt/bonbridge}"
 CONFIG_DIR="${BONBRIDGE_CONFIG_DIR:-/etc/bonbridge}"
@@ -73,8 +74,28 @@ else
   warn "/etc/os-release not found"
 fi
 
-command -v systemctl >/dev/null 2>&1 || die "systemd is required"
-command -v apt-get   >/dev/null 2>&1 || die "this installer supports Debian based systems (apt)"
+command -v apt-get >/dev/null 2>&1 || die "this installer supports Debian based systems (apt)"
+
+# systemd may be installed but not running as PID 1 - that is the normal case
+# inside Docker containers, CI runners, chroots and WSL1.  Unit files are still
+# installed so the system works after a real boot; only enable/start is skipped.
+SYSTEMD_OK=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  SYSTEMD_OK=1
+  ok "systemd is running"
+else
+  warn "systemd is not running as PID 1 (container / CI / chroot?)"
+  warn "unit files will be installed, but the service is not enabled or started"
+fi
+
+# Run a systemctl command only when systemd is actually usable.
+sctl() {
+  if [ "$SYSTEMD_OK" -eq 1 ]; then
+    systemctl "$@"
+  else
+    return 0
+  fi
+}
 
 MODEL=""
 [ -r /proc/device-tree/model ] && MODEL="$(tr -d '\0' < /proc/device-tree/model)"
@@ -110,11 +131,39 @@ else
   command -v tar  >/dev/null 2>&1 || apt-get install -y -qq tar
   TMPDIR_DL="$(mktemp -d)"
   trap 'rm -rf "$TMPDIR_DL"' EXIT
-  URL="https://codeload.github.com/${REPO_OWNER}/${REPO_NAME}/tar.gz/refs/heads/${BRANCH}"
-  curl -fsSL "$URL" -o "$TMPDIR_DL/bonbridge.tar.gz" \
-    || die "download failed: $URL"
-  tar -xzf "$TMPDIR_DL/bonbridge.tar.gz" -C "$TMPDIR_DL"
-  SOURCE_DIR="$(find "$TMPDIR_DL" -maxdepth 1 -type d -name "${REPO_NAME}-*" | head -n1)"
+
+  # A tag such as v1.0.0 lives under refs/tags, a branch under refs/heads.
+  case "$BRANCH" in
+    v[0-9]*) REF_PATH="refs/tags/${BRANCH}" ;;
+    *)       REF_PATH="refs/heads/${BRANCH}" ;;
+  esac
+
+  DOWNLOADED=0
+  for URL in \
+    "https://codeload.github.com/${REPO_OWNER}/${REPO_NAME}/tar.gz/${REF_PATH}" \
+    "https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/${REF_PATH}.tar.gz"
+  do
+    if curl -fsSL --retry 2 --connect-timeout 20 "$URL" -o "$TMPDIR_DL/bonbridge.tar.gz"; then
+      DOWNLOADED=1
+      break
+    fi
+    warn "download failed, trying the next mirror: $URL"
+  done
+
+  if [ "$DOWNLOADED" -eq 1 ]; then
+    tar -xzf "$TMPDIR_DL/bonbridge.tar.gz" -C "$TMPDIR_DL" \
+      || die "the downloaded archive could not be extracted"
+  elif command -v git >/dev/null 2>&1 || apt-get install -y -qq git; then
+    warn "falling back to git clone"
+    git clone --depth 1 --branch "$BRANCH" \
+      "https://github.com/${REPO_OWNER}/${REPO_NAME}.git" "$TMPDIR_DL/${REPO_NAME}-git" \
+      || die "download failed - check the network and https://github.com/${REPO_OWNER}/${REPO_NAME}"
+  else
+    die "download failed - check the network and https://github.com/${REPO_OWNER}/${REPO_NAME}"
+  fi
+
+  SOURCE_DIR="$(find "$TMPDIR_DL" -maxdepth 1 -type d ! -path "$TMPDIR_DL" \
+                 -exec test -d '{}/src/bonbridge' \; -print | head -n1)"
   [ -d "${SOURCE_DIR:-}/src/bonbridge" ] || die "downloaded archive looks wrong"
   ok "downloaded"
 fi
@@ -122,7 +171,7 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Stop a running instance, then copy the files
 # ---------------------------------------------------------------------------
-if systemctl is-active --quiet bonbridge 2>/dev/null; then
+if [ "$SYSTEMD_OK" -eq 1 ] && systemctl is-active --quiet bonbridge 2>/dev/null; then
   info "Stopping the running service"
   systemctl stop bonbridge || true
 fi
@@ -177,7 +226,8 @@ logging:
   level: INFO
 # Printers are created automatically on first start.
 # For several print groups give every printer its own IP address in "bind"
-# and create the IP alias with:  systemctl enable --now bonbridge-ip@eth0:192.168.1.51/24
+# and create the IP alias with:
+#   systemctl enable --now 'bonbridge-ip@eth0-192.168.1.51-24.service'
 printers: []
 EOF
   ok "configuration created"
@@ -191,9 +241,13 @@ fi
 info "Installing the systemd service"
 install -m 0644 "$INSTALL_DIR/packaging/systemd/bonbridge.service"    /etc/systemd/system/bonbridge.service
 install -m 0644 "$INSTALL_DIR/packaging/systemd/bonbridge-ip@.service" /etc/systemd/system/bonbridge-ip@.service
-systemctl daemon-reload
-systemctl enable bonbridge >/dev/null 2>&1 || true
-ok "service installed"
+sctl daemon-reload || true
+sctl enable bonbridge >/dev/null 2>&1 || true
+if [ "$SYSTEMD_OK" -eq 1 ]; then
+  ok "service installed and enabled"
+else
+  ok "unit files installed (enable them after a real boot: systemctl enable --now bonbridge)"
+fi
 
 # udev rule so a replugged printer is picked up without a restart
 install -m 0644 "$INSTALL_DIR/packaging/udev/99-bonbridge.rules" /etc/udev/rules.d/99-bonbridge.rules 2>/dev/null || true
@@ -203,12 +257,12 @@ udevadm control --reload-rules 2>/dev/null || true
 # 7. Optional CUPS module
 # ---------------------------------------------------------------------------
 if [ "$WITH_CUPS" -eq 1 ]; then
-  info "Building the vendored zj-58 CUPS filter"
+  info "Building the vendored zj-58 CUPS filter (BSD-2-Clause, klirichek/zj-58)"
   BUILD_DIR="$INSTALL_DIR/vendor/zj-58/build"
   rm -rf "$BUILD_DIR"; mkdir -p "$BUILD_DIR"
   ( cd "$BUILD_DIR" && cmake .. >/dev/null && make -j"$(nproc)" >/dev/null && make install >/dev/null ) \
     && ok "zj-58 filter installed" || warn "zj-58 build failed - CUPS printing will be unavailable"
-  systemctl restart cups || true
+  sctl restart cups || true
   info "Registering the CUPS queue via BonBridge"
   bash "$INSTALL_DIR/packaging/cups/setup-cups.sh" || warn "CUPS queue setup failed - see docs"
 fi
@@ -216,7 +270,7 @@ fi
 # ---------------------------------------------------------------------------
 # 8. Start
 # ---------------------------------------------------------------------------
-if [ "$DO_START" -eq 1 ]; then
+if [ "$DO_START" -eq 1 ] && [ "$SYSTEMD_OK" -eq 1 ]; then
   info "Starting BonBridge"
   systemctl restart bonbridge
   sleep 2
@@ -225,6 +279,9 @@ if [ "$DO_START" -eq 1 ]; then
   else
     warn "service did not start - check: journalctl -u bonbridge -n 50"
   fi
+elif [ "$DO_START" -eq 1 ]; then
+  warn "not starting the service because systemd is not running"
+  warn "you can run it in the foreground for a test:  bonbridge run"
 fi
 
 # ---------------------------------------------------------------------------

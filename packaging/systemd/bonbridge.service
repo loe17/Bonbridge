@@ -1,6 +1,6 @@
 [Unit]
 Description=BonBridge - network bridge for ESC/POS receipt printers
-Documentation=https://github.com/loe17/bonbridge
+Documentation=https://github.com/loe17/Bonbridge
 After=network-online.target
 Wants=network-online.target
 # Avahi is optional; if it is present we want it up first so the mDNS

@@ -10,6 +10,14 @@ endpoint, i.e. real status read-back.
 Requires ``python3-usb`` (pyusb) and libusb.  If pyusb is missing the
 transport reports itself as unavailable and the daemon falls back to
 ``usblp``.
+
+References
+----------
+* PyUSB (BSD-3-Clause)  https://github.com/pyusb/pyusb
+* libusb (LGPL-2.1+)    https://github.com/libusb/libusb
+* USB printer class (bInterfaceClass 0x07), USB Device Class Definition for
+  Printing Devices  https://www.usb.org/documents
+* Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
 from __future__ import annotations

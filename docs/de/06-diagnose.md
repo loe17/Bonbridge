@@ -159,7 +159,7 @@ ss -tlnp | grep -E ':(9100|8080|631)'
 ## Neu installieren / aktualisieren
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```
 
 Die Konfiguration bleibt erhalten. Deinstallation:

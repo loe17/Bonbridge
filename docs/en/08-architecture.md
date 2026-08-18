@@ -80,13 +80,17 @@ Installing requires only:
 
 Two third-party components are **vendored** into `vendor/`:
 
-| Component | Licence | Used for |
-|---|---|---|
-| `zj-58` | BSD-2-Clause | CUPS filter, only for the optional CUPS module |
-| `escpos-printer-db` | CC-BY-4.0 | Model and capability database |
+| Component | Source | Licence | Used for |
+|---|---|---|---|
+| `zj-58` | [klirichek/zj-58](https://github.com/klirichek/zj-58) | [BSD-2-Clause](https://github.com/klirichek/zj-58/blob/master/LICENSE) | CUPS filter, only for the optional CUPS module |
+| `escpos-printer-db` | [receipt-print-hq/escpos-printer-db](https://github.com/receipt-print-hq/escpos-printer-db) | [CC BY 4.0](https://github.com/receipt-print-hq/escpos-printer-db/blob/master/LICENSE.md) | Model and capability database |
 
 Both licences permit redistribution. `vendor/*/VENDORED_COMMIT` records which
-upstream revision the copy was taken from. Details in `NOTICE`.
+upstream revision the copy was taken from.
+
+**Full list with call sites:** [09-references.md](09-references.md) - it names,
+for every library, specification and ESC/POS command, where in the project it
+is used. Machine-readable short version in [`NOTICE`](../../NOTICE).
 
 So if either project disappeared from GitHub tomorrow, BonBridge would remain
 installable and functional.

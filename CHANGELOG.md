@@ -4,6 +4,47 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-08-18
+
+### Fixed
+
+- **Installer aborted where systemd is not PID 1.** `install.sh` called
+  `systemctl daemon-reload` unconditionally, which fails inside Docker
+  containers, CI runners and chroots ("System has not been booted with systemd
+  as init system"). The installer now detects a usable systemd via
+  `/run/systemd/system`, installs the unit files either way and only skips
+  enable/start. `uninstall.sh` had the same problem and aborted before removing
+  the program files.
+- **Repository name.** The default download location is now
+  `loe17/Bonbridge`. `raw.githubusercontent.com` and `codeload.github.com` are
+  case sensitive, so the lower-case spelling could 404.
+- **Download robustness.** `install.sh` now tries `codeload.github.com`, then
+  `github.com/.../archive`, then falls back to `git clone`, and it resolves
+  tags (`--branch v1.0.1`) as well as branches. The extracted directory is
+  located by looking for `src/bonbridge` instead of guessing its name.
+- Serial ports are no longer listed as usable devices when pySerial is
+  missing.
+- The recommended POS font is now Font B (`font2`) whenever the printer has
+  one, matching the OrderAssist example receipt. Previously a printer whose
+  Font A already had 48 columns (TM-m30III, TM-T20III) was recommended with
+  Font A.
+
+### Added
+
+- **`docs/de/09-referenzen.md` and `docs/en/09-references.md`**: every piece of
+  third-party code, data source and specification with a link, its licence and
+  the exact place in the project where it is used - vendored code (zj-58,
+  escpos-printer-db), runtime dependencies, the ESC/POS command table with the
+  function that implements each command, RAW/JetDirect, mDNS, ENPC, the
+  OrderAssist documentation and the related projects that were evaluated.
+- Reference blocks in the module docstrings of `escpos.py`, `caps.py`,
+  `raw_server.py`, `mdns.py` and the transports, pointing at the specification
+  each one implements.
+- The recommendation now carries a note that the line width comes from the
+  model database and should be reduced by one if the divider still wraps.
+- Profile detection reasons are bilingual so they read correctly in the German
+  interface.
+
 ## [1.0.0] - 2026-08-18
 
 First release under the new name. Complete rewrite of
@@ -90,4 +131,5 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
-[1.0.0]: https://github.com/loe17/bonbridge/releases/tag/v1.0.0
+[1.0.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.0.1
+[1.0.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.0.0

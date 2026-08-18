@@ -83,13 +83,18 @@ Zur Installation werden nur benötigt:
 
 Zwei Fremdkomponenten liegen **einvendort** im Repo unter `vendor/`:
 
-| Komponente | Lizenz | Wofür |
-|---|---|---|
-| `zj-58` | BSD-2-Clause | CUPS-Filter, nur für das optionale CUPS-Modul |
-| `escpos-printer-db` | CC-BY-4.0 | Modell- und Funktionsdatenbank |
+| Komponente | Quelle | Lizenz | Wofür |
+|---|---|---|---|
+| `zj-58` | [klirichek/zj-58](https://github.com/klirichek/zj-58) | [BSD-2-Clause](https://github.com/klirichek/zj-58/blob/master/LICENSE) | CUPS-Filter, nur für das optionale CUPS-Modul |
+| `escpos-printer-db` | [receipt-print-hq/escpos-printer-db](https://github.com/receipt-print-hq/escpos-printer-db) | [CC BY 4.0](https://github.com/receipt-print-hq/escpos-printer-db/blob/master/LICENSE.md) | Modell- und Funktionsdatenbank |
 
 Beide Lizenzen erlauben das Mitliefern. `vendor/*/VENDORED_COMMIT` hält fest,
-aus welchem Upstream-Stand die Kopie stammt. Details in `NOTICE`.
+aus welchem Upstream-Stand die Kopie stammt.
+
+**Vollständige Liste mit Fundstellen im Code:**
+[09-referenzen.md](09-referenzen.md) – dort steht zu jeder Bibliothek, jeder
+Spezifikation und jedem ESC/POS-Befehl, wo im Projekt sie benutzt wird.
+Kurzfassung maschinenlesbar in [`NOTICE`](../../NOTICE).
 
 Damit gilt: Wenn eines dieser Projekte morgen von GitHub verschwindet, bleibt
 BonBridge installierbar und funktionsfähig.

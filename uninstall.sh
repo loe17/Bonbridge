@@ -17,15 +17,25 @@ PURGE=0
 [ "${1:-}" = "--purge" ] && PURGE=1
 [ "$(id -u)" -eq 0 ] || { echo "please run as root: sudo bash uninstall.sh" >&2; exit 1; }
 
-echo "==> Stopping services"
-systemctl disable --now bonbridge 2>/dev/null || true
-for unit in $(systemctl list-units --all --plain --no-legend 'bonbridge-ip@*' 2>/dev/null | awk '{print $1}'); do
-  systemctl disable --now "$unit" 2>/dev/null || true
-done
+# systemd may be installed but not running (container / CI / chroot).
+SYSTEMD_OK=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  SYSTEMD_OK=1
+fi
+
+if [ "$SYSTEMD_OK" -eq 1 ]; then
+  echo "==> Stopping services"
+  systemctl disable --now bonbridge 2>/dev/null || true
+  for unit in $(systemctl list-units --all --plain --no-legend 'bonbridge-ip@*' 2>/dev/null | awk '{print $1}'); do
+    systemctl disable --now "$unit" 2>/dev/null || true
+  done
+else
+  echo "==> systemd is not running - skipping service shutdown"
+fi
 
 echo "==> Removing unit files"
 rm -f /etc/systemd/system/bonbridge.service /etc/systemd/system/bonbridge-ip@.service
-systemctl daemon-reload
+[ "$SYSTEMD_OK" -eq 1 ] && systemctl daemon-reload || true
 
 echo "==> Removing program files"
 rm -rf "$INSTALL_DIR"
@@ -33,7 +43,7 @@ rm -f /usr/local/bin/bonbridge
 rm -f /etc/udev/rules.d/99-bonbridge.rules
 rm -f /etc/avahi/services/bonbridge.service
 udevadm control --reload-rules 2>/dev/null || true
-systemctl reload avahi-daemon 2>/dev/null || true
+[ "$SYSTEMD_OK" -eq 1 ] && systemctl reload avahi-daemon 2>/dev/null || true
 
 if [ "$PURGE" -eq 1 ]; then
   echo "==> Purging configuration and data"

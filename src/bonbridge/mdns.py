@@ -11,6 +11,14 @@ Two mechanisms, both optional:
 Announced services:
   ``_pdl-datastream._tcp`` (port 9100)  - RAW printing, what POS apps look for
   ``_http._tcp``           (web port)   - the BonBridge web interface
+
+References
+----------
+* RFC 6762 (Multicast DNS)     https://datatracker.ietf.org/doc/html/rfc6762
+* RFC 6763 (DNS-SD)            https://datatracker.ietf.org/doc/html/rfc6763
+* Avahi static service files   https://www.avahi.org/
+* python-zeroconf (optional)   https://github.com/python-zeroconf/python-zeroconf
+* Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
 from __future__ import annotations

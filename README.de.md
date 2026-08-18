@@ -17,7 +17,7 @@ eine Weboberfläche für Status, Diagnose und Einrichtung.
 ## Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/loe17/bonbridge/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/loe17/Bonbridge/main/install.sh | sudo bash
 ```
 
 Das ist die komplette Installation. Sie läuft auf
@@ -97,9 +97,15 @@ Details: [`docs/de/04-orderassist.md`](docs/de/04-orderassist.md)
 | Diagnose & FAQ | [06-diagnose.md](docs/de/06-diagnose.md) | [06-diagnostics.md](docs/en/06-diagnostics.md) |
 | Mehrere Ausdruckgruppen | [07-ausdruckgruppen.md](docs/de/07-ausdruckgruppen.md) | [07-print-groups.md](docs/en/07-print-groups.md) |
 | Architektur | [08-architektur.md](docs/de/08-architektur.md) | [08-architecture.md](docs/en/08-architecture.md) |
+| **Fremdcode & Quellen** | [09-referenzen.md](docs/de/09-referenzen.md) | [09-references.md](docs/en/09-references.md) |
 
 ## Lizenz
 
 MIT für BonBridge selbst. Mitgelieferte Komponenten behalten ihre eigenen
-Lizenzen – siehe [`NOTICE`](NOTICE). BonBridge steht in keiner Verbindung zu
+Lizenzen – siehe [`NOTICE`](NOTICE) und die kommentierte Liste in
+[`docs/de/09-referenzen.md`](docs/de/09-referenzen.md). Dort steht jeder
+verwendete Fremdcode mit Lizenz und Fundstelle:
+[zj-58](https://github.com/klirichek/zj-58) (BSD-2-Clause, CUPS-Filter) und
+[escpos-printer-db](https://github.com/receipt-print-hq/escpos-printer-db)
+(CC BY 4.0, Druckermodell-Datenbank). BonBridge steht in keiner Verbindung zu
 Seiko Epson oder zu OrderAssist.

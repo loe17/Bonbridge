@@ -16,6 +16,17 @@ four steps, from cheap to expensive:
 Every detected feature can be overridden from the web interface; the result
 carries the source ("detected", "profile", "override") so the UI can show
 where a value came from.
+
+References
+----------
+* Printer capability data: escpos-printer-db (CC BY 4.0), vendored at
+  ``vendor/escpos-printer-db/capabilities.json``
+  https://github.com/receipt-print-hq/escpos-printer-db
+  Browsable: https://mike42.me/escpos-printer-db/
+* ESC/POS ``GS I`` / ``DLE EOT`` semantics: Epson ESC/POS command reference
+  https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/index.html
+* IEEE 1284 device ID via the Linux ``usblp`` driver (see transports/usblp.py)
+* Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
 from __future__ import annotations

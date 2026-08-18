@@ -75,10 +75,13 @@ jobs:
     runs-on: ubuntu-latest
     container: debian:bookworm
     steps:
+      # NOTE: a container has no systemd as PID 1.  The installer detects that
+      # via /run/systemd/system, installs the unit files anyway and skips
+      # enable/start - this job exists to keep that path working.
       - name: Prepare container
         run: |
           apt-get update -qq
-          apt-get install -y -qq systemd ca-certificates git
+          apt-get install -y -qq ca-certificates git
 
       - uses: actions/checkout@v4
 
@@ -87,8 +90,19 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
 
-      - name: The CLI must work
+      - name: Everything must be in place
         run: |
           test -x /usr/local/bin/bonbridge
+          test -f /etc/systemd/system/bonbridge.service
+          test -f /etc/systemd/system/bonbridge-ip@.service
+          test -f /etc/bonbridge/config.yaml
+          test -f /opt/bonbridge/vendor/escpos-printer-db/capabilities.json
+          test -f /opt/bonbridge/docs/de/09-referenzen.md
           bonbridge --version
           bonbridge scan
+
+      - name: Uninstall must also work without systemd
+        run: |
+          bash /opt/bonbridge/uninstall.sh --purge
+          test ! -d /opt/bonbridge
+          test ! -f /etc/systemd/system/bonbridge.service
