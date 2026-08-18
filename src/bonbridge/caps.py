@@ -396,3 +396,132 @@ def recommend_pos_settings(profile_id: str, profile: Optional[Dict[str, Any]] = 
             "wraps, reduce it by 1. If the layout looks wrong, try the alternatives."
         ),
     }
+
+
+# --------------------------------------------------------------------------
+# Cash drawer
+# --------------------------------------------------------------------------
+
+#: What the drawer kick-out connector can and cannot tell us.
+#:
+#: ESC/POS reports the level of pin 3 of the drawer connector (``DLE EOT 1``
+#: bit 2, also ``GS r 2``).  A closed drawer pulls that pin to ground, so:
+#:
+#:   pin LOW   -> a drawer is definitely connected and currently closed
+#:   pin HIGH  -> the drawer is open **or** nothing is connected at all
+#:
+#: The two HIGH cases are electrically identical, so a single reading cannot
+#: distinguish them.  What does distinguish them is history: if the pin has
+#: ever been LOW, a drawer exists.  BonBridge therefore remembers that fact
+#: across restarts, and offers an active test that fires the pulse and watches
+#: whether the pin changes.
+DRAWER_UNKNOWN = "unknown"
+DRAWER_CONNECTED_CLOSED = "connected_closed"
+DRAWER_OPEN_OR_ABSENT = "open_or_absent"
+DRAWER_CONNECTED_OPEN = "connected_open"
+
+DRAWER_TEXT = {
+    DRAWER_UNKNOWN: (
+        "Unbekannt - Status nicht lesbar",
+        "Unknown - status not readable",
+    ),
+    DRAWER_CONNECTED_CLOSED: (
+        "Angeschlossen und geschlossen",
+        "Connected and closed",
+    ),
+    DRAWER_CONNECTED_OPEN: (
+        "Angeschlossen, gerade offen",
+        "Connected, currently open",
+    ),
+    DRAWER_OPEN_OR_ABSENT: (
+        "Offen oder keine angeschlossen",
+        "Open or none connected",
+    ),
+}
+
+
+def drawer_state(status: Dict[str, Any], seen_connected: bool = False) -> Dict[str, Any]:
+    """Interpret the drawer pin from a status reading.
+
+    ``seen_connected`` is the remembered fact that the pin has been LOW at some
+    point, which upgrades the ambiguous HIGH reading to "connected, open".
+    """
+    printer = status.get("printer") or {}
+    if "drawer_pin_high" not in printer:
+        state = DRAWER_UNKNOWN
+        pin_high = None
+    else:
+        pin_high = bool(printer["drawer_pin_high"])
+        if not pin_high:
+            state = DRAWER_CONNECTED_CLOSED
+        elif seen_connected:
+            state = DRAWER_CONNECTED_OPEN
+        else:
+            state = DRAWER_OPEN_OR_ABSENT
+
+    label_de, label_en = DRAWER_TEXT[state]
+    return {
+        "state": state,
+        "pin_high": pin_high,
+        "connected": state in (DRAWER_CONNECTED_CLOSED, DRAWER_CONNECTED_OPEN),
+        "certain": state in (DRAWER_CONNECTED_CLOSED, DRAWER_CONNECTED_OPEN),
+        "label_de": label_de,
+        "label_en": label_en,
+        "explain_de": (
+            "Der Drucker meldet nur den Pegel von Pin 3 der Kassenladen-Buchse. Eine "
+            "geschlossene Lade zieht diesen Pin auf Masse - das ist eindeutig. Ein hoher "
+            "Pegel bedeutet dagegen 'Lade offen' ODER 'keine Lade angeschlossen'; "
+            "elektrisch sind beide Fälle identisch. Mit dem Test 'Kassenlade prüfen' "
+            "lässt sich das aufklären."
+        ),
+        "explain_en": (
+            "The printer only reports the level of pin 3 of the drawer connector. A closed "
+            "drawer pulls that pin to ground, which is unambiguous. A high level means "
+            "either 'drawer open' or 'no drawer connected' - electrically the two are "
+            "identical. The 'Check cash drawer' test resolves it."
+        ),
+    }
+
+
+def probe_drawer(transport: BaseTransport, pin: int = 0, settle: float = 1.2) -> Dict[str, Any]:
+    """Active test: read the pin, fire the pulse, read again.
+
+    A connected, closed drawer reads LOW, pops open on the pulse and then reads
+    HIGH - a change that nothing else can produce.  If the pin is HIGH both
+    before and after, either no drawer is attached or it was already open.
+    """
+    import time as _time
+
+    result: Dict[str, Any] = {
+        "before": None,
+        "after": None,
+        "changed": False,
+        "verdict": DRAWER_UNKNOWN,
+        "readable": bool(transport.bidirectional),
+    }
+    if not transport.bidirectional:
+        return result
+
+    before = read_status(transport)
+    result["before"] = (before.get("printer") or {}).get("drawer_pin_high")
+
+    try:
+        transport.write(escpos.drawer_pulse(pin))
+    except TransportError as exc:
+        log.warning("Drawer probe failed: %s", exc)
+        return result
+
+    _time.sleep(settle)
+    after = read_status(transport)
+    result["after"] = (after.get("printer") or {}).get("drawer_pin_high")
+
+    if result["before"] is None or result["after"] is None:
+        result["verdict"] = DRAWER_UNKNOWN
+    elif result["before"] != result["after"]:
+        result["changed"] = True
+        result["verdict"] = DRAWER_CONNECTED_OPEN
+    elif result["before"] is False:
+        result["verdict"] = DRAWER_CONNECTED_CLOSED
+    else:
+        result["verdict"] = DRAWER_OPEN_OR_ABSENT
+    return result

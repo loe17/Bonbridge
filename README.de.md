@@ -36,8 +36,12 @@ Danach:
 
 ```
 Weboberfläche :  http://<ip>:8080/
+Dokumentation :  http://<ip>:8080/docs
 Kassendruck   :  <ip>  Port 9100  (RAW / ESC-POS)
 ```
+
+Die IP-Adresse musst du nicht suchen: **BonBridge druckt bei jedem Start einen
+Bon mit der eigenen Adresse, dem Port und den Werten fürs Kassensystem.**
 
 ## Was es tut
 
@@ -65,6 +69,14 @@ Kassendruck   :  <ip>  Port 9100  (RAW / ESC-POS)
 * **CUPS ist optional**, nicht Voraussetzung. Wenn es aktiviert wird, druckt
   dessen Warteschlange *durch* BonBridge hindurch, statt sich mit ihm um das
   Gerät zu streiten.
+* **Druckt beim Start die eigene Adresse** – ein Gerät ohne Bildschirm sagt dir
+  trotzdem, wohin die App zeigen muss.
+* **Begründet jede Warnung.** Jede Statusampel klappt zu den Einzelprüfungen
+  auf – Unterspannung, Temperatur, Speicher, Listener, Papier – samt Hinweis,
+  was zu tun ist.
+* **Bons direkt aus dem Browser drucken**, mit Live-Vorschau in der echten
+  Papierbreite.
+* **Dokumentation auf dem Gerät**, als HTML unter `/docs`, ohne Internet.
 
 ## Schnellprüfung
 

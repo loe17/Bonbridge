@@ -296,11 +296,17 @@ printf '%s================================================================%s\n' 
 printf '%s BonBridge installed%s\n' "$C_OK" "$C_0"
 printf '%s================================================================%s\n' "$C_B" "$C_0"
 echo
-echo "  Web interface :  http://${IP}:${WEB_PORT}/    (also http://${HOST}.local:${WEB_PORT}/)"
+echo "  Web interface :  http://${IP}:${WEB_PORT}/"
 echo "  POS printing  :  ${IP}   port ${RAW_PORT}   (RAW / ESC-POS)"
+echo "  Documentation :  http://${IP}:${WEB_PORT}/docs"
 echo
 echo "  In OrderAssist: Drucker -> + Hinzufuegen -> IP address ${IP}"
 echo "  The port is fixed at 9100 in the app and does not need to be entered."
+echo
+echo "  BonBridge prints a slip with its own IP address every time it starts,"
+echo "  so the address is always at hand even without a screen."
+echo "  (http://${HOST}.local:${WEB_PORT}/ also works on macOS/iOS/Android and"
+echo "   most Linux desktops - on Windows only with Bonjour installed.)"
 echo
 echo "  Status        :  systemctl status bonbridge"
 echo "  Log           :  journalctl -u bonbridge -f"

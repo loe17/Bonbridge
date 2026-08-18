@@ -40,6 +40,71 @@ Pi 4 ── LAN ──────────┤
   Weboberfläche: http://192.168.1.50:8080/
 ```
 
+### 0. Die Drucker physisch anschließen
+
+Bevor irgendetwas konfiguriert wird, müssen beide Drucker gleichzeitig am
+Gerät hängen und erkannt werden.
+
+**Stromversorgung – der wichtigste Punkt.** Jeder Bondrucker braucht sein
+**eigenes 24-V-Netzteil**. Der Raspberry Pi versorgt keinen einzigen Drucker.
+Der Pi selbst braucht bei mehreren USB-Geräten ein kräftiges Netzteil:
+
+| Gerät | Netzteil für den Pi |
+|---|---|
+| Pi Zero 2 W | 5 V / 2,5 A |
+| Pi 3 | 5 V / 2,5 A |
+| Pi 4 / Pi 5 | Original-Netzteil (5 V / 3 A bzw. 5 V / 5 A) |
+
+Wenn in der Übersicht unter „Warum?" **Unterspannung** auftaucht, ist das
+Netzteil oder das Kabel zu schwach – das äußert sich sonst als sporadisch
+verschwindende Drucker.
+
+**Anschlussarten:**
+
+```
+Variante 1 – direkt (bis zu 2 Drucker am Pi 4/5)
+
+   Pi 4  ┌── USB-A ──── USB-B ──▶ Drucker Küche   (eigenes 24-V-Netzteil)
+         └── USB-A ──── USB-B ──▶ Drucker Theke   (eigenes 24-V-Netzteil)
+
+Variante 2 – mit aktivem USB-Hub (ab 3 Druckern, oder beim Pi Zero)
+
+   Pi ── USB ──▶ [ aktiver USB-Hub mit eigenem Netzteil ]
+                        ├── USB-B ──▶ Drucker 1
+                        ├── USB-B ──▶ Drucker 2
+                        └── USB-B ──▶ Drucker 3
+```
+
+* Beim **Pi 4** die schwarzen USB-2.0-Ports bevorzugen, wenn ein Drucker
+  zickt.
+* Beim **Pi Zero 2 W** geht nur ein USB-Anschluss – für mehrere Drucker
+  zwingend ein **aktiver** Hub (mit eigenem Netzteil), sonst bricht die
+  Spannung ein.
+* **Passive Hubs** sind die häufigste Fehlerursache bei mehreren Druckern.
+
+**Prüfen, ob beide erkannt werden:**
+
+```bash
+bonbridge scan
+```
+
+Beide Drucker müssen mit eigener Zeile auftauchen. Bei zwei baugleichen
+Geräten unterscheiden sie sich nur in der **Seriennummer** – die brauchst du
+gleich:
+
+```
+usb     EPSON TM-T88V (04b8:0202)
+        vendor_id_hex: 04b8
+        product_id_hex: 0202
+        serial: X3M4820015          <- diese Zeile
+usb     EPSON TM-T88V (04b8:0202)
+        serial: X3M4820099
+```
+
+> Zeigt `bonbridge scan` nur einen Drucker, ist es ein Hardware-Problem
+> (Strom, Kabel, Hub) – kein Software-Problem. Erst weitermachen, wenn beide
+> zu sehen sind.
+
 ### 1. Freie IP-Adressen wählen
 
 Die zusätzlichen Adressen müssen

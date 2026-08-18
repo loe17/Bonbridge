@@ -28,13 +28,16 @@ class MockPrinterState:
         self.paper_end = False
         self.paper_near_end = False
         self.error = False
+        # Pin 3 of the drawer connector: HIGH means "drawer open or no drawer
+        # connected", LOW means "a drawer is connected and closed".
+        self.drawer_pin_high = True
         self.lock = threading.Lock()
 
     # -- status bytes ------------------------------------------------------
 
     def printer_status(self) -> int:
-        # bit1 fixed 1, bit4 fixed 1
-        return 0x12
+        # bit1 fixed 1, bit4 fixed 1, bit2 = drawer connector pin 3
+        return 0x12 | (0x04 if self.drawer_pin_high else 0x00)
 
     def offline_status(self) -> int:
         value = 0x12

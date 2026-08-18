@@ -76,23 +76,87 @@ journalctl -u bonbridge -b
 Häufigste Ursache: Die IP-Adresse des Geräts hat sich geändert (DHCP). Feste
 IP im Router reservieren.
 
+### „Die Kassenlade wird als vorhanden angezeigt, es ist aber keine da"
+
+Das ist keine Fehlfunktion, sondern eine Grenze der Hardware — und BonBridge
+zeigt das jetzt sauber getrennt an:
+
+* **„Kassenlade" in der Funktionsliste** heißt: *Der Drucker hat eine
+  Kassenladen-Buchse und kann den Impuls senden.* Beim TM-T88V stimmt das
+  immer, auch wenn nichts eingesteckt ist.
+* **„Zustand der Kassenlade"** darunter ist die Live-Messung.
+
+Der Drucker meldet nur den **Pegel von Pin 3** der Buchse:
+
+| Messung | Bedeutung |
+|---|---|
+| Pin **LOW** | Eine Lade ist angeschlossen **und geschlossen** — eindeutig |
+| Pin **HIGH** | Lade offen **ODER** keine Lade angeschlossen — elektrisch identisch |
+
+Ein einzelner Messwert kann die beiden HIGH-Fälle also nicht unterscheiden.
+Was sie unterscheidet, ist der Verlauf: Wer den Pin schon einmal LOW gesehen
+hat, weiß, dass eine Lade existiert. Genau das merkt sich BonBridge dauerhaft
+(auch über einen Stromausfall hinweg).
+
+**Aktiver Test:** *Funktionen → Kassenlade prüfen*. Der Test liest den Pin,
+löst den Impuls aus und liest erneut. Springt der Pegel von LOW auf HIGH, ist
+eine Lade angeschlossen — das kann nichts anderes verursachen. Bleibt er in
+beiden Messungen HIGH, ist entweder keine Lade angeschlossen oder sie stand
+schon offen.
+
+Wenn du sicher weißt, dass keine Lade angeschlossen ist und die Funktion nicht
+angeboten werden soll: *Funktionen → Kassenlade → aus (erzwungen)*.
+
+### „bonbridge.local funktioniert nicht"
+
+Unter Windows ist das normal. Namen mit `.local` werden per mDNS aufgelöst;
+macOS, iOS, Android und die meisten Linux-Desktops können das von Haus aus,
+**Windows nur mit installiertem Bonjour**.
+
+Das ist kein Problem: **Die IP-Adresse funktioniert überall.** Sie steht auf
+dem Statusbon, den BonBridge beim Einschalten druckt. Damit sie stabil bleibt,
+im Router eine DHCP-Reservierung für das Gerät eintragen.
+
 ### „Der grüne Haken in OrderAssist stimmt nicht"
 
 Der Haken prüft nur, ob eine TCP-Verbindung möglich ist. BonBridge nimmt
 Aufträge auch bei leerem Papier entgegen und speichert sie zwischen. Der echte
 Zustand steht in der BonBridge-Übersicht.
 
-### „Der Drucker taucht in der OrderAssist-Suche nicht auf"
+### „Der Drucker taucht in der automatischen Suche nicht auf"
 
-Das ist erwartetes Verhalten: Die Suche findet laut OrderAssist-Doku nur
-EPSON-Netzwerkdrucker. BonBridge wird **manuell über die IP** hinzugefügt.
+Der zuverlässige Weg bleibt: **Drucker manuell über die IP-Adresse hinzufügen.**
+Die IP steht auf dem Statusbon, den BonBridge beim Einschalten druckt, und in
+der Weboberfläche.
 
-Es gibt eine **experimentelle** Option, die Epson-Suchpakete zu beantworten
-(*System → Epson-Suchprotokoll beantworten*, ENPC auf UDP 3289). Epson
-veröffentlicht dieses Protokoll nicht; die Umsetzung beruht auf
-Community-Analysen und ist ungetestet. Sie ist standardmäßig **aus**. Wenn sie
-nicht funktioniert, ist das kein Fehler – der manuelle Weg bleibt der
-unterstützte.
+Trotzdem versucht BonBridge, in der Suche aufzutauchen. Kassen-Apps suchen
+Epson-Drucker über das **ENPC-Protokoll** (UDP 3289): Sie schicken ein
+Broadcast-Paket, das mit `EPSONQ` beginnt, Drucker antworten mit `EPSONq`.
+BonBridge beantwortet solche Pakete (Standard: an, abschaltbar unter *System*).
+
+**Epson veröffentlicht dieses Protokoll nicht.** Das Antwortformat beruht auf
+öffentlichen Analysen Dritter – dass die Antwort korrekt ist, lässt sich ohne
+Originalgerät nicht garantieren. Deshalb gibt es die Diagnose:
+
+**Weboberfläche → Diagnose → Automatische Druckersuche**
+
+Dort steht, wie viele Suchanfragen angekommen sind, von welcher Adresse, und
+jede einzelne als Hexdump. Das beantwortet die entscheidende Frage in einem
+einzigen Versuch:
+
+1. Suche in der Kassen-App starten.
+2. In der Diagnose nachsehen.
+
+| Beobachtung | Bedeutung | Nächster Schritt |
+|---|---|---|
+| **Anfragen erscheinen, Drucker taucht trotzdem nicht auf** | Die Suche erreicht das Gerät, aber unsere Antwort passt nicht. | Hexdump kopieren und melden – daraus lässt sich das Format nachziehen. |
+| **Keine Anfragen** | Die App sucht nicht per ENPC (oder das Broadcast kommt nicht durch). | Prüfen, ob Handy und Gerät im selben WLAN sind und ob der Router Broadcasts blockiert (Gäste-WLAN, „Client Isolation" / „AP Isolation" abschalten). Kommt weiterhin nichts an, benutzt die App ein anderes Verfahren – dann ist der manuelle Weg der richtige. |
+| **Anfragen erscheinen, „beantwortet" steht auf nein** | Der Responder läuft nicht oder Port 3289 ist belegt. | `ss -ulnp \| grep 3289` prüfen. |
+
+Häufigste Ursache für „keine Anfragen": **Client-Isolation im WLAN**. Viele
+Router trennen WLAN-Clients voneinander, dann kommen Broadcasts nie an. Der
+Drucker ist dann trotzdem über die IP erreichbar, nur die Suche funktioniert
+nicht.
 
 ## Statusabfrage verstehen
 
@@ -110,6 +174,23 @@ spricht. Ein reiner Schreibkanal (wie `socat -u`) kann prinzipbedingt keinen
 Status liefern.
 
 Rohwerte stehen in **Diagnose → Status**.
+
+## Automatische Ausdrucke
+
+| Ausdruck | Standard | Wo einstellbar |
+|---|---|---|
+| **Statusbon beim Start** – IP-Adresse, Port, Werte fürs Kassensystem, QR-Code auf die Weboberfläche | **an** | Drucker → Optionen |
+| **Papier-fast-leer-Warnung** – einmalig, wenn die Rolle zur Neige geht | aus | Drucker → Optionen |
+
+Der Statusbon ist bewusst voreingestellt: Das Gerät hat keinen Bildschirm, und
+ein Zettel mit der IP-Adresse ist der schnellste Weg von „eingesteckt" zu „die
+App druckt". Er lässt sich jederzeit erneut anstoßen: *Übersicht → Statusbon
+drucken*.
+
+Beide Einstellungen liegen in `/etc/bonbridge/config.yaml` und überstehen
+einen Stromausfall. Auch die Information „Warnung wurde bereits gedruckt"
+überlebt einen Neustart – nach dem Papierwechsel wird sie automatisch
+zurückgesetzt.
 
 ## Zwischenspeicher (Spool)
 

@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-from . import __version__, caps, discovery, escpos, mdns, paths, sysinfo
+from . import __version__, caps, discovery, escpos, health, mdns, paths, receipts, sysinfo
 from .config import Config
 from .jobs import Job, PrinterWorker
 from .raw_server import RawListenerSupervisor
@@ -118,8 +118,13 @@ class BonBridge:
     def _start_printers(self) -> None:
         raw_port = int((self.config.data.get("raw") or {}).get("port") or 9100)
         max_connections = int((self.config.data.get("raw") or {}).get("max_connections") or 8)
+        language = str((self.config.data.get("web") or {}).get("language") or "de")
         for printer_config in self.config.printers:
             runtime = PrinterRuntime(printer_config, raw_port, max_connections)
+            runtime.worker.report_context = {
+                "language": language,
+                "build_startup_report": self.build_startup_report,
+            }
             self.printers[runtime.printer_id] = runtime
             runtime.start()
 
@@ -127,23 +132,34 @@ class BonBridge:
         settings = self.config.data.get("discovery") or {}
         web_port = int((self.config.data.get("web") or {}).get("port") or 8080)
         raw_port = int((self.config.data.get("raw") or {}).get("port") or 9100)
-        announced = [
-            {"id": p.printer_id, "name": p.config.get("name"), "port": raw_port}
-            for p in self.printers.values()
-            if p.config.get("enabled", True)
-        ]
+        announced = []
+        for runtime in self.printers.values():
+            if not runtime.config.get("enabled", True):
+                continue
+            capabilities = runtime.worker.capabilities or {}
+            announced.append(
+                {
+                    "id": runtime.printer_id,
+                    "name": runtime.config.get("name"),
+                    "port": raw_port,
+                    "model": capabilities.get("profile_name") or "ESC-POS",
+                    "vendor": capabilities.get("vendor") or "BonBridge",
+                }
+            )
         if settings.get("mdns", True):
             mdns.write_avahi_service_file(
                 announced, web_port, str(self.config.data.get("hostname_label") or "")
             )
             self.mdns.start(announced, web_port)
-        if settings.get("enpc", False):
+        if settings.get("enpc", True):
             self.enpc = discovery.EnpcResponder(
                 device_name_provider=lambda: str(
                     self.config.data.get("hostname_label") or sysinfo.hostname()
                 ),
                 mac_provider=discovery.local_mac,
                 ip_provider=sysinfo.primary_ipv4,
+                log_probes=bool(settings.get("log_probes", True)),
+                port=int(settings.get("enpc_port") or discovery.ENPC_PORT),
             )
             self.enpc.start()
 
@@ -200,23 +216,16 @@ class BonBridge:
             bind = entry.get("bind") or "0.0.0.0"
             entry["pos_address"] = (ip if bind in ("0.0.0.0", "", "::") else bind)
             entry["pos_port"] = raw_port
-        worst = "ok"
-        ranking = {"ok": 0, "warn": 1, "unknown": 1, "offline": 2, "error": 3}
-        for entry in printers:
-            if ranking.get(entry.get("status_level", "unknown"), 1) > ranking.get(worst, 0):
-                worst = entry.get("status_level", "unknown")
+        health_report = self.health()
         return {
             "version": self.version,
             "system": sysinfo.summary(),
             "raw_port": raw_port,
             "printers": printers,
-            "overall_status": worst if printers else "unknown",
+            "overall_status": health_report["level"],
             "transports": runtime_report(),
-            "discovery": {
-                "mdns": bool((self.config.data.get("discovery") or {}).get("mdns", True)),
-                "mdns_active": self.mdns.active,
-                "enpc": self.enpc.snapshot() if self.enpc else {"enabled": False},
-            },
+            "discovery": self.discovery_snapshot(),
+            "health": health_report,
             "uptime": time.time() - self.started_at,
         }
 
@@ -384,7 +393,12 @@ class BonBridge:
                 f"  listener:     {listener.get('bind')}:{listener.get('port')} "
                 f"listening={listener.get('listening')} error={listener.get('error')}"
             )
-            lines.append(f"  status:       {printer['status_level']} - {'; '.join(printer['status_messages'])}")
+            status_text = "; ".join(escpos.status_texts(printer.get("status_messages") or [], "en"))
+            lines.append(f"  status:       {printer['status_level']} - {status_text}")
+            drawer = printer.get("drawer") or {}
+            lines.append(
+                f"  drawer:       {drawer.get('state', 'unknown')} (pin_high={drawer.get('pin_high')})"
+            )
             lines.append(f"  jobs:         {printer['jobs_total']} ok / {printer['jobs_failed']} failed")
             lines.append(f"  queued:       {printer['queued']}  spooled: {printer['spooled']}")
             lines.append(f"  last error:   {printer['last_error']}")
@@ -406,6 +420,33 @@ class BonBridge:
                 )
             lines.append("")
 
+        report = self.health()
+        lines.append("Health checks")
+        lines.append("-" * 60)
+        lines.append(f"  overall: {report['level']}")
+        for check in report["device"]["checks"]:
+            lines.append(f"  [{check['level']:<5}] device  {check['title_en']}")
+            if check["detail_en"]:
+                lines.append(f"            {check['detail_en']}")
+        for printer_id, entry in report["printers"].items():
+            for check in entry["checks"]:
+                lines.append(f"  [{check['level']:<5}] {printer_id:<8} {check['title_en']}")
+                if check["detail_en"]:
+                    lines.append(f"            {check['detail_en']}")
+        lines.append("")
+
+        discovery_info = self.discovery_snapshot()
+        enpc = discovery_info.get("enpc") or {}
+        lines.append("Discovery")
+        lines.append("-" * 60)
+        lines.append(f"  mDNS active:   {discovery_info.get('mdns_active')}")
+        lines.append(f"  ENPC enabled:  {enpc.get('enabled')}  listening={enpc.get('listening')}")
+        lines.append(f"  ENPC probes:   {enpc.get('requests', 0)} received / {enpc.get('replies', 0)} answered")
+        for probe in (enpc.get("probes") or [])[:5]:
+            lines.append(f"  --- probe from {probe['peer']} ({probe['bytes']} bytes) ---")
+            lines.append(probe["hexdump"])
+        lines.append("")
+
         lines.append("Detected devices")
         lines.append("-" * 60)
         for device in self.scan():
@@ -418,6 +459,190 @@ class BonBridge:
             lines.append(output)
             lines.append("")
         return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    # Automatic slips, health, composing
+    # ------------------------------------------------------------------
+
+    def printer_address(self, runtime: "PrinterRuntime") -> str:
+        """The address a POS application has to be pointed at."""
+        bind = str(runtime.config.get("bind") or "0.0.0.0")
+        if bind in ("0.0.0.0", "", "::"):
+            return sysinfo.primary_ipv4()
+        return bind
+
+    def build_startup_report(self, worker: Any) -> bytes:
+        """The slip printed on start-up: IP address, port and POS settings.
+
+        A BonBridge device usually has no screen.  Printing its own address on
+        power-up is the fastest way to get someone from "it is plugged in" to
+        "the app can reach it" without a laptop.
+        """
+        runtime = self.printers.get(getattr(worker, "printer_id", ""))
+        capabilities = getattr(worker, "capabilities", {}) or {}
+        recommendation = capabilities.get("recommendation") or {}
+        features = capabilities.get("features") or {}
+        columns = int(recommendation.get("columns") or 42)
+        codepage = str(recommendation.get("codepage") or "cp1252")
+        font_name = str(recommendation.get("font") or "font1")
+        font_index = 1 if font_name.endswith("2") else 0
+
+        address = self.printer_address(runtime) if runtime else sysinfo.primary_ipv4()
+        raw_port = runtime.raw_port if runtime else 9100
+        web_port = int((self.config.data.get("web") or {}).get("port") or 8080)
+        language = str((self.config.data.get("web") or {}).get("language") or "de")
+        german = language.lower().startswith("de")
+
+        if german:
+            title = "BonBridge bereit"
+            big_label = "IP-Adresse fuer das Kassensystem"
+            rows = [
+                ("Port", str(raw_port)),
+                ("Drucker", str(getattr(worker, "config", {}).get("name") or "")),
+                ("Modell", str(capabilities.get("profile_name") or "-")),
+                ("Schriftart", str(recommendation.get("font") or "-")),
+                ("Zeichensatz", codepage),
+                ("Zeilenbreite", str(columns)),
+                ("Geraet", sysinfo.hostname()),
+                ("Version", self.version),
+                ("Zeit", time.strftime("%Y-%m-%d %H:%M")),
+            ]
+            hints = [
+                f"Weboberflaeche: http://{address}:{web_port}/",
+                "In OrderAssist: Drucker -> + Hinzufuegen -> diese IP eintragen.",
+                "Der Port ist in der App fest 9100 und muss nicht angegeben werden.",
+                "Diesen Ausdruck kann man in der Weboberflaeche unter Drucker abschalten.",
+            ]
+        else:
+            title = "BonBridge ready"
+            big_label = "IP address for the POS application"
+            rows = [
+                ("Port", str(raw_port)),
+                ("Printer", str(getattr(worker, "config", {}).get("name") or "")),
+                ("Model", str(capabilities.get("profile_name") or "-")),
+                ("Font", str(recommendation.get("font") or "-")),
+                ("Character set", codepage),
+                ("Line width", str(columns)),
+                ("Device", sysinfo.hostname()),
+                ("Version", self.version),
+                ("Time", time.strftime("%Y-%m-%d %H:%M")),
+            ]
+            hints = [
+                f"Web interface: http://{address}:{web_port}/",
+                "In the POS app add a network printer with this IP address.",
+                "The port is fixed at 9100 and does not need to be entered.",
+                "This slip can be switched off in the web interface under Printers.",
+            ]
+
+        return escpos.status_report_page(
+            title=title,
+            lines=rows,
+            hints=hints,
+            columns=columns,
+            font=font_index,
+            codepage=codepage,
+            qr_payload=f"http://{address}:{web_port}/",
+            do_cut=bool((features.get("cutter") or {}).get("effective", True)),
+            big_value=address,
+            big_label=big_label,
+        )
+
+    def print_startup_report(self, printer_id: str) -> Dict[str, Any]:
+        """Print the start-up slip again on demand."""
+        runtime = self.printers.get(printer_id)
+        if runtime is None:
+            return {"ok": False, "error": f"unknown printer '{printer_id}'"}
+        payload = self.build_startup_report(runtime.worker)
+        runtime.worker.submit_bytes(payload, source="web-ui", label="startup-report")
+        return {"ok": True, "queued": True, "bytes": len(payload)}
+
+    def health(self) -> Dict[str, Any]:
+        """Device health plus per-printer health, each with reasons."""
+        device = health.summary(health.device_checks(self))
+        printers = {}
+        for printer_id, runtime in self.printers.items():
+            printers[printer_id] = health.summary(health.printer_checks(runtime.snapshot()))
+        levels = [device["level"]] + [entry["level"] for entry in printers.values()]
+        return {
+            "level": health.worst_level(levels),
+            "device": device,
+            "printers": printers,
+        }
+
+    def check_drawer(self, printer_id: str) -> Dict[str, Any]:
+        """Active cash drawer test - fires the pulse and watches the pin."""
+        runtime = self.printers.get(printer_id)
+        if runtime is None:
+            return {"ok": False, "error": f"unknown printer '{printer_id}'"}
+        worker = runtime.worker
+        transport = worker.transport
+        if transport is None or not transport.is_open:
+            return {"ok": False, "error": "printer not connected"}
+        pin = int((runtime.config.get("options") or {}).get("drawer_pin") or 0)
+        result = caps.probe_drawer(transport, pin=pin)
+        if result["verdict"] in (caps.DRAWER_CONNECTED_CLOSED, caps.DRAWER_CONNECTED_OPEN):
+            worker.note_drawer_seen()
+        worker.refresh_status()
+        return {"ok": True, "result": result, "drawer": worker.drawer}
+
+    def compose(self, printer_id: str, spec: Dict[str, Any], do_print: bool = False) -> Dict[str, Any]:
+        """Build a receipt from a spec; preview it and optionally print it."""
+        runtime = self.printers.get(printer_id)
+        if runtime is None:
+            return {"ok": False, "error": f"unknown printer '{printer_id}'"}
+        capabilities = runtime.worker.capabilities or {}
+        recommendation = capabilities.get("recommendation") or {}
+        features = capabilities.get("features") or {}
+
+        def feature_on(name: str, default: bool = True) -> bool:
+            return bool((features.get(name) or {}).get("effective", default))
+
+        columns = int(spec.get("columns") or recommendation.get("columns") or 42)
+        columns = max(16, min(96, columns))
+        codepage = str(recommendation.get("codepage") or "cp1252")
+        font_name = str(recommendation.get("font") or "font1")
+        font_index = 1 if font_name.endswith("2") else 0
+
+        payload, preview, notes = receipts.compose(
+            spec,
+            columns=columns,
+            codepage=codepage,
+            font=font_index,
+            can_cut=feature_on("cutter"),
+            can_drawer=feature_on("cashdrawer"),
+            can_barcode=feature_on("barcode"),
+            can_qr=feature_on("qrcode"),
+        )
+
+        result: Dict[str, Any] = {
+            "ok": True,
+            "columns": columns,
+            "codepage": codepage,
+            "font": font_name,
+            "preview": preview,
+            "notes": notes,
+            "bytes": len(payload),
+            "printed": False,
+        }
+        if do_print:
+            runtime.worker.submit_bytes(payload, source="web-ui", label="composed receipt")
+            result["printed"] = True
+        return result
+
+    def discovery_snapshot(self) -> Dict[str, Any]:
+        settings = self.config.data.get("discovery") or {}
+        return {
+            "mdns": bool(settings.get("mdns", True)),
+            "mdns_active": self.mdns.active,
+            "enpc": self.enpc.snapshot()
+            if self.enpc
+            else {"enabled": False, "probes": [], "requests": 0, "replies": 0},
+        }
+
+    def clear_discovery_probes(self) -> Dict[str, Any]:
+        if self.enpc is None:
+            return {"ok": True, "removed": 0}
+        return {"ok": True, "removed": self.enpc.clear_probes()}
 
     # ------------------------------------------------------------------
     # Configuration changes

@@ -12,6 +12,11 @@ Announced services:
   ``_pdl-datastream._tcp`` (port 9100)  - RAW printing, what POS apps look for
   ``_http._tcp``           (web port)   - the BonBridge web interface
 
+A note on ``<hostname>.local``: mDNS name resolution is built into macOS,
+iOS, Android and most Linux desktops, but **not** into Windows unless Bonjour
+is installed.  The announcements are therefore a convenience, never a
+requirement - everything BonBridge does is reachable by plain IP address.
+
 References
 ----------
 * RFC 6762 (Multicast DNS)     https://datatracker.ietf.org/doc/html/rfc6762
@@ -66,13 +71,21 @@ def write_avahi_service_file(
     for printer in printers:
         name = escape(str(printer.get("name") or printer.get("id") or "printer"))
         port = int(printer.get("port") or 9100)
+        model = escape(str(printer.get("model") or "ESC-POS"))
+        vendor = escape(str(printer.get("vendor") or "BonBridge"))
+        # TXT keys follow the Bonjour Printing Specification so that clients
+        # which filter by manufacturer/model see something meaningful.
         lines += [
             "  <service>",
             "    <type>_pdl-datastream._tcp</type>",
             f"    <port>{port}</port>",
             f"    <txt-record>ty={name}</txt-record>",
             "    <txt-record>pdl=application/octet-stream</txt-record>",
+            f"    <txt-record>product=({model})</txt-record>",
+            f"    <txt-record>usb_MFG={vendor}</txt-record>",
+            f"    <txt-record>usb_MDL={model}</txt-record>",
             f"    <txt-record>note={escape(label)}</txt-record>",
+            "    <txt-record>priority=10</txt-record>",
             "  </service>",
         ]
     lines.append("</service-group>")
@@ -126,7 +139,14 @@ class MdnsAdvertiser:
                     "_pdl-datastream._tcp.local.",
                     f"{printer.get('id', 'printer')}-{host}._pdl-datastream._tcp.local.",
                     int(printer.get("port") or 9100),
-                    {"ty": str(printer.get("name") or ""), "pdl": "application/octet-stream"},
+                    {
+                        "ty": str(printer.get("name") or ""),
+                        "pdl": "application/octet-stream",
+                        "product": f"({printer.get('model') or 'ESC-POS'})",
+                        "usb_MFG": str(printer.get("vendor") or "BonBridge"),
+                        "usb_MDL": str(printer.get("model") or "ESC-POS"),
+                        "priority": "10",
+                    },
                 )
             )
 

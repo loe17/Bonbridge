@@ -76,22 +76,82 @@ journalctl -u bonbridge -b
 Most common cause: the device's IP address changed (DHCP). Reserve a fixed IP
 in the router.
 
+### "The cash drawer is reported as present but there is none"
+
+That is not a malfunction but a limit of the hardware - and BonBridge now shows
+the two things separately:
+
+* **"Cash drawer" in the feature list** means: *the printer has a drawer
+  connector and can fire the pulse.* On a TM-T88V that is always true, even
+  with nothing plugged in.
+* **"Cash drawer state"** below it is the live measurement.
+
+The printer only reports the **level of pin 3** of the connector:
+
+| Reading | Meaning |
+|---|---|
+| Pin **LOW** | A drawer is connected **and closed** - unambiguous |
+| Pin **HIGH** | Drawer open **OR** no drawer connected - electrically identical |
+
+A single reading therefore cannot distinguish the two HIGH cases. What does
+distinguish them is history: once the pin has been LOW, a drawer exists.
+BonBridge remembers exactly that, across a power cut.
+
+**Active test:** *Features → Check cash drawer*. It reads the pin, fires the
+pulse and reads again. If the level goes from LOW to HIGH a drawer is
+connected - nothing else can cause that. If it stays HIGH in both readings,
+either no drawer is attached or it was already open.
+
+If you know for certain that no drawer is attached and the feature should not
+be offered: *Features → Cash drawer → off (forced)*.
+
+### "bonbridge.local does not work"
+
+On Windows that is normal. `.local` names are resolved via mDNS; macOS, iOS,
+Android and most Linux desktops can do it out of the box, **Windows only with
+Bonjour installed**.
+
+It does not matter: **the IP address works everywhere.** It is printed on the
+status slip at power-up. To keep it stable, add a DHCP reservation for the
+device in the router.
+
 ### "The green check mark in OrderAssist is misleading"
 
 It only tests whether a TCP connection is possible. BonBridge accepts jobs
 even when the paper is out and spools them. The real state is in the BonBridge
 overview.
 
-### "The printer does not show up in the OrderAssist search"
+### "The printer does not show up in the automatic search"
 
-That is expected: according to the OrderAssist documentation the search only
-finds EPSON network printers. BonBridge is added **manually by IP**.
+The reliable route remains: **add the printer manually by IP address.** The IP
+is on the status slip BonBridge prints at power-up, and in the web interface.
 
-There is an **experimental** option to answer Epson discovery probes
-(*System → Answer Epson discovery probes*, ENPC on UDP 3289). Epson does not
-publish this protocol; the implementation is based on community analysis and
-is untested. It is **off** by default. If it does not work, that is not a bug -
-the manual route remains the supported one.
+BonBridge still tries to appear in the search. POS apps look for Epson printers
+using the **ENPC protocol** (UDP 3289): they broadcast a packet starting with
+`EPSONQ`, printers answer with `EPSONq`. BonBridge answers such packets
+(default: on, switchable under *System*).
+
+**Epson does not publish this protocol.** The reply format is based on public
+third-party analysis - without an original device there is no way to guarantee
+the reply is correct. Hence the diagnostics:
+
+**Web interface → Diagnostics → Automatic printer search**
+
+It shows how many search requests arrived, from which address, and every one of
+them as a hexdump. That answers the decisive question in a single attempt:
+
+1. Start the search in the POS app.
+2. Look at the diagnostics page.
+
+| Observation | Meaning | Next step |
+|---|---|---|
+| **Requests appear, printer still not listed** | The search reaches the device but our reply does not match. | Copy the hexdump and report it - the format can be corrected from it. |
+| **No requests** | The app does not search via ENPC (or the broadcast never arrives). | Check that the phone and the device are on the same Wi-Fi and that the router does not block broadcasts (guest Wi-Fi, disable "client isolation" / "AP isolation"). If still nothing arrives, the app uses a different mechanism and the manual route is the right one. |
+| **Requests appear but "answered" says no** | The responder is not running or port 3289 is taken. | Check with `ss -ulnp \| grep 3289`. |
+
+The most common cause of "no requests" is **client isolation on the Wi-Fi**.
+Many routers separate wireless clients from each other, so broadcasts never
+arrive. The printer is still reachable by IP - only the search fails.
 
 ## Understanding the status query
 
@@ -108,6 +168,21 @@ This only works because BonBridge talks to the printer in both directions. A
 write-only channel (like `socat -u`) cannot report status by construction.
 
 Raw values are in **Diagnostics → Status**.
+
+## Automatic printouts
+
+| Printout | Default | Where to configure |
+|---|---|---|
+| **Status slip on start-up** - IP address, port, POS settings, QR code to the web interface | **on** | Printers → Options |
+| **Paper-low warning** - printed once when the roll runs out | off | Printers → Options |
+
+The status slip is on by default on purpose: the device has no screen, and a
+slip with the IP address is the fastest way from "plugged in" to "the app
+prints". It can be triggered again at any time: *Overview → Print status slip*.
+
+Both settings live in `/etc/bonbridge/config.yaml` and survive a power cut. The
+fact that the warning has already been printed also survives a reboot - it is
+reset automatically once new paper is detected.
 
 ## Spooling
 

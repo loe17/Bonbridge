@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional, Pattern, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import __version__, paths, sysinfo
+from .. import __version__, markdown, paths, sysinfo
 
 log = logging.getLogger(__name__)
 
@@ -210,6 +210,34 @@ class WebApplication:
         def integration(printer_id: str, **_: Any) -> Dict[str, Any]:
             return {"ok": True, "integration": app.integration_info(printer_id)}
 
+        @self.route("GET", r"/api/health")
+        def health_route(**_: Any) -> Dict[str, Any]:
+            return {"ok": True, "health": app.health()}
+
+        @self.route("GET", r"/api/discovery")
+        def discovery_route(**_: Any) -> Dict[str, Any]:
+            return {"ok": True, "discovery": app.discovery_snapshot()}
+
+        @self.route("POST", r"/api/discovery/clear")
+        def discovery_clear(**_: Any) -> Dict[str, Any]:
+            return app.clear_discovery_probes()
+
+        @self.route("POST", r"/api/printers/([^/]+)/drawer-check")
+        def drawer_check(printer_id: str, **_: Any) -> Dict[str, Any]:
+            return app.check_drawer(printer_id)
+
+        @self.route("POST", r"/api/printers/([^/]+)/startup-report")
+        def startup_report(printer_id: str, **_: Any) -> Dict[str, Any]:
+            return app.print_startup_report(printer_id)
+
+        @self.route("POST", r"/api/printers/([^/]+)/compose")
+        def compose(printer_id: str, *, body: Optional[bytes] = None, **_: Any) -> Dict[str, Any]:
+            payload = self._json_body(body)
+            spec = payload.get("spec")
+            if not isinstance(spec, dict):
+                raise ApiError("missing 'spec' object")
+            return app.compose(printer_id, spec, do_print=bool(payload.get("print")))
+
         @self.route("GET", r"/api/scan")
         def scan(**_: Any) -> Dict[str, Any]:
             return {"ok": True, "devices": app.scan()}
@@ -232,6 +260,43 @@ class WebApplication:
             app.restart_printers()
             return {"ok": True}
 
+        @self.route("GET", r"/docs")
+        def docs_index(*, query: Optional[Dict[str, List[str]]] = None, **_: Any) -> Tuple[int, str, bytes]:
+            language = (query or {}).get("lang", ["de"])[0]
+            language = language if language in ("de", "en") else "de"
+            return 200, "text/html; charset=utf-8", _docs_index_html(language)
+
+        @self.route("GET", r"/docs/(de|en)/([A-Za-z0-9._-]+)")
+        def docs_page(language: str, name: str, **_: Any) -> Tuple[int, str, bytes]:
+            if name.endswith(".html"):
+                name = name[: -len(".html")] + ".md"
+            if not name.endswith(".md"):
+                name += ".md"
+            path = (paths.DOCS_DIR / language / name).resolve()
+            root = paths.DOCS_DIR.resolve()
+            if not str(path).startswith(str(root)) or not path.is_file():
+                raise ApiError("document not found", 404)
+            source = path.read_text(encoding="utf-8")
+            page = markdown.render_document(
+                source,
+                css=DOC_CSS,
+                link_rewriter=_make_link_rewriter(language),
+                nav_html=_docs_nav_html(language, name),
+                language=language,
+            )
+            return 200, "text/html; charset=utf-8", page.encode("utf-8")
+
+        @self.route("GET", r"/docs-img/([A-Za-z0-9._-]+)")
+        def docs_image(name: str, **_: Any) -> Tuple[int, str, bytes]:
+            path = (paths.DOCS_DIR / "img" / name).resolve()
+            root = (paths.DOCS_DIR / "img").resolve()
+            if not str(path).startswith(str(root)) or not path.is_file():
+                raise ApiError("image not found", 404)
+            content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+            if content_type == "image/svg+xml":
+                content_type += "; charset=utf-8"
+            return 200, content_type, path.read_bytes()
+
         @self.route("GET", r"/api/docs")
         def docs_index(**_: Any) -> Dict[str, Any]:
             return {"ok": True, "documents": _list_docs()}
@@ -243,6 +308,181 @@ class WebApplication:
             if not str(path).startswith(str(root)) or not path.is_file():
                 raise ApiError("document not found", 404)
             return 200, "text/markdown; charset=utf-8", path.read_bytes()
+
+
+DOC_CSS = """
+:root{--bg:#f5f6f8;--panel:#fff;--panel2:#f0f2f5;--line:#dfe3e9;--fg:#1a1d23;
+      --muted:#5b6472;--accent:#2f6fd0;--radius:10px}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--line:#2a2f3a;--fg:#e8eaed;
+        --muted:#9aa3b2;--accent:#4f9cf9}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+     font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header.docnav{position:sticky;top:0;z-index:5;background:var(--panel);
+  border-bottom:1px solid var(--line);padding:.6rem 1rem;display:flex;gap:.5rem;
+  align-items:center;flex-wrap:wrap}
+header.docnav a{color:var(--muted);text-decoration:none;font-size:.86rem;
+  padding:.25rem .55rem;border-radius:var(--radius);border:1px solid transparent}
+header.docnav a:hover{background:var(--panel2);color:var(--fg)}
+header.docnav a.active{background:var(--panel2);color:var(--fg);border-color:var(--line)}
+header.docnav .brand{font-weight:700;margin-right:.6rem;color:var(--fg)}
+header.docnav .spacer{flex:1}
+main.doc{max-width:60rem;margin:0 auto;padding:1.4rem 1.2rem 4rem}
+article{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:1.4rem 1.6rem;overflow-wrap:break-word}
+h1,h2,h3,h4{line-height:1.25;margin:1.8rem 0 .6rem}
+h1{margin-top:0;font-size:1.7rem}
+h2{font-size:1.3rem;border-bottom:1px solid var(--line);padding-bottom:.3rem}
+h3{font-size:1.08rem;color:var(--muted);text-transform:none}
+a{color:var(--accent)}
+a.anchor{opacity:0;margin-left:.4rem;text-decoration:none;font-weight:400}
+h1:hover a.anchor,h2:hover a.anchor,h3:hover a.anchor{opacity:.45}
+code{background:var(--panel2);border:1px solid var(--line);border-radius:5px;
+  padding:.06rem .32rem;font-size:.88em}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:var(--radius);
+  padding:.9rem 1rem;overflow:auto;font-size:.84rem;line-height:1.45}
+pre code{background:none;border:none;padding:0;font-size:inherit}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.92rem;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:.42rem .6rem;vertical-align:top}
+th{background:var(--panel2);text-align:left}
+blockquote{margin:1rem 0;padding:.6rem 1rem;border-left:4px solid var(--accent);
+  background:var(--panel2);border-radius:0 var(--radius) var(--radius) 0}
+blockquote p{margin:.3rem 0}
+img{max-width:100%;height:auto;background:#fff;border:1px solid var(--line);
+  border-radius:var(--radius);padding:.5rem}
+ul,ol{padding-left:1.4rem}
+li{margin:.25rem 0}
+hr{border:none;border-top:1px solid var(--line);margin:1.6rem 0}
+nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:.8rem 1rem;margin-bottom:1rem;font-size:.9rem}
+nav.toc .toc-title{font-weight:600;margin-bottom:.35rem;color:var(--muted)}
+nav.toc ul{list-style:none;padding-left:0;margin:0}
+nav.toc li.lvl3{padding-left:1rem}
+nav.toc a{text-decoration:none}
+nav.toc a:hover{text-decoration:underline}
+@media print{header.docnav,nav.toc{display:none}article{border:none;padding:0}}
+"""
+
+#: Documentation pages in reading order, per language.
+DOC_PAGES = {
+    "de": [
+        ("01-hardware.md", "Hardware"),
+        ("02-anschlussplan.md", "Anschlussplan"),
+        ("03-drucker-konfiguration.md", "Drucker einrichten"),
+        ("04-orderassist.md", "OrderAssist"),
+        ("05-weboberflaeche.md", "Weboberfläche"),
+        ("06-diagnose.md", "Diagnose"),
+        ("07-ausdruckgruppen.md", "Mehrere Drucker"),
+        ("08-architektur.md", "Architektur"),
+        ("09-referenzen.md", "Referenzen"),
+    ],
+    "en": [
+        ("01-hardware.md", "Hardware"),
+        ("02-wiring.md", "Wiring"),
+        ("03-printer-setup.md", "Printer setup"),
+        ("04-pos-integration.md", "POS integration"),
+        ("05-web-interface.md", "Web interface"),
+        ("06-diagnostics.md", "Diagnostics"),
+        ("07-print-groups.md", "Several printers"),
+        ("08-architecture.md", "Architecture"),
+        ("09-references.md", "References"),
+    ],
+}
+
+
+def _make_link_rewriter(language: str):
+    """Turn the Markdown links into links that work inside the web interface."""
+
+    def rewrite(href: str, is_image: bool) -> str:
+        if href.startswith(("http://", "https://", "mailto:", "#", "/")):
+            return href
+        target = href.split("#", 1)
+        anchor = f"#{target[1]}" if len(target) > 1 else ""
+        name = target[0]
+        if is_image or name.endswith((".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp")):
+            return "/docs-img/" + name.split("/")[-1]
+        if name.endswith(".md"):
+            plain = name.split("/")[-1]
+            if name.startswith("../../") or "/" not in name.replace("../", ""):
+                # sibling page inside the same language folder
+                if name.startswith("../../"):
+                    # repository root file such as MIGRATION.md - no HTML view
+                    return "https://github.com/loe17/Bonbridge/blob/main/" + name.replace("../../", "")
+                return f"/docs/{language}/{plain}{anchor}"
+            return f"/docs/{language}/{plain}{anchor}"
+        if name.startswith("../../"):
+            return "https://github.com/loe17/Bonbridge/blob/main/" + name.replace("../../", "")
+        return href
+
+    return rewrite
+
+
+def _docs_nav_html(language: str, current: str = "") -> str:
+    import html as _html
+
+    other = "en" if language == "de" else "de"
+    home_label = "Zurück zur Oberfläche" if language == "de" else "Back to the interface"
+    items = [f'<a class="brand" href="/">BonBridge</a>', f'<a href="/">&larr; {home_label}</a>']
+    items.append('<span class="spacer"></span>')
+    for name, label in DOC_PAGES.get(language, []):
+        active = ' class="active"' if name == current else ""
+        items.append(f'<a href="/docs/{language}/{name}"{active}>{_html.escape(label)}</a>')
+    items.append(f'<a href="/docs?lang={other}">{other.upper()}</a>')
+    return f'<header class="docnav">{"".join(items)}</header>'
+
+
+def _docs_index_html(language: str) -> bytes:
+    import html as _html
+
+    german = language == "de"
+    title = "Dokumentation" if german else "Documentation"
+    intro = (
+        "Die vollständige BonBridge-Dokumentation, direkt auf dem Gerät - auch ohne "
+        "Internetverbindung. Die Quelldateien liegen als Markdown im Repository."
+        if german
+        else "The complete BonBridge documentation, served from the device itself - no "
+        "internet connection required. The sources are Markdown files in the repository."
+    )
+    cards = []
+    for name, label in DOC_PAGES.get(language, []):
+        path = paths.DOCS_DIR / language / name
+        summary = ""
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith(("#", "!", ">", "|", "*", "-")):
+                    summary = stripped
+                    break
+        except OSError:
+            continue
+        cards.append(
+            f'<li><a href="/docs/{language}/{name}"><strong>{_html.escape(label)}</strong>'
+            f'<span>{_html.escape(summary[:160])}</span></a></li>'
+        )
+    extra_css = """
+    ul.cards{list-style:none;padding:0;display:grid;gap:.7rem;
+             grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))}
+    ul.cards a{display:block;padding:.8rem 1rem;border:1px solid var(--line);
+               border-radius:var(--radius);text-decoration:none;background:var(--panel2)}
+    ul.cards a:hover{border-color:var(--accent)}
+    ul.cards strong{display:block;color:var(--fg);margin-bottom:.2rem}
+    ul.cards span{color:var(--muted);font-size:.86rem}
+    """
+    body = (
+        f"<h1>{title}</h1><p>{_html.escape(intro)}</p>"
+        f'<ul class="cards">{"".join(cards)}</ul>'
+    )
+    page = (
+        "<!DOCTYPE html>"
+        f'<html lang="{language}"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{title} - BonBridge</title><style>{DOC_CSS}{extra_css}</style></head><body>"
+        f'{_docs_nav_html(language)}<main class="doc"><article>{body}</article></main>'
+        "</body></html>"
+    )
+    return page.encode("utf-8")
 
 
 def _list_docs() -> List[Dict[str, str]]:

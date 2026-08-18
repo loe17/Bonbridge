@@ -39,6 +39,66 @@ Pi 4 ── LAN ──────────┤
   Web interface: http://192.168.1.50:8080/
 ```
 
+### 0. Connect the printers physically
+
+Before anything is configured, both printers have to be attached at the same
+time and be detected.
+
+**Power - the single most important point.** Every receipt printer needs its
+**own 24 V power supply**. The Raspberry Pi powers none of them. The Pi itself
+needs a strong supply once several USB devices are attached:
+
+| Device | Power supply for the Pi |
+|---|---|
+| Pi Zero 2 W | 5 V / 2.5 A |
+| Pi 3 | 5 V / 2.5 A |
+| Pi 4 / Pi 5 | the original PSU (5 V / 3 A resp. 5 V / 5 A) |
+
+If the overview shows **under-voltage** under "Why?", the supply or the cable
+is too weak - which otherwise shows up as printers disappearing at random.
+
+**Wiring options:**
+
+```
+Option 1 - direct (up to 2 printers on a Pi 4/5)
+
+   Pi 4  ┌── USB-A ──── USB-B ──▶ kitchen printer  (own 24 V supply)
+         └── USB-A ──── USB-B ──▶ bar printer      (own 24 V supply)
+
+Option 2 - with a powered USB hub (from 3 printers, or on a Pi Zero)
+
+   Pi ── USB ──▶ [ powered USB hub with its own PSU ]
+                        ├── USB-B ──▶ printer 1
+                        ├── USB-B ──▶ printer 2
+                        └── USB-B ──▶ printer 3
+```
+
+* On the **Pi 4** prefer the black USB 2.0 ports if a printer misbehaves.
+* The **Pi Zero 2 W** has only one USB port - several printers require a
+  **powered** hub, otherwise the voltage collapses.
+* **Passive hubs** are the most common cause of trouble with several printers.
+
+**Verify that both are detected:**
+
+```bash
+bonbridge scan
+```
+
+Both printers must appear with their own entry. Two identical units differ
+only in their **serial number** - you will need it in a moment:
+
+```
+usb     EPSON TM-T88V (04b8:0202)
+        vendor_id_hex: 04b8
+        product_id_hex: 0202
+        serial: X3M4820015          <- this line
+usb     EPSON TM-T88V (04b8:0202)
+        serial: X3M4820099
+```
+
+> If `bonbridge scan` shows only one printer, it is a hardware problem (power,
+> cable, hub), not a software problem. Do not continue until both are visible.
+
 ### 1. Choose free IP addresses
 
 The additional addresses must

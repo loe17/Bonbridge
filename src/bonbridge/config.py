@@ -43,6 +43,13 @@ except ImportError:  # pragma: no cover
 DEFAULT_RAW_PORT = 9100
 
 DEFAULT_PRINTER_OPTIONS: Dict[str, Any] = {
+    # Print a status receipt (IP address, port, POS settings, QR code) when the
+    # daemon starts.  On by default because the device usually has no screen
+    # and the printed slip is the fastest way to learn the IP address.
+    "startup_report": True,
+    # Print a warning slip when the printer reports "paper near end".
+    # Off by default so it cannot surprise anyone during service.
+    "paper_low_warning": False,
     # Append a paper cut after every job.  Most POS apps send their own cut
     # command, so this is off by default.
     "cut_after_job": False,
@@ -100,10 +107,16 @@ DEFAULTS: Dict[str, Any] = {
     },
     "discovery": {
         "mdns": True,
-        # Experimental Epson ENPC responder (UDP 3289) so that the
-        # OrderAssist printer search can find the bridge.  Off by default,
-        # see docs/de/06-diagnose.md / docs/en/06-diagnostics.md.
-        "enpc": False,
+        # Epson ENPC responder (UDP 3289).  This is what makes BonBridge show
+        # up in the OrderAssist printer search.  Epson does not publish the
+        # protocol, so the reply is best effort - but answering is harmless and
+        # the request log tells us whether the app probes at all.
+        "enpc": True,
+        # Log every discovery probe with a hexdump so the reply format can be
+        # verified against a real app.
+        "log_probes": True,
+        # UDP port of the Epson discovery protocol.  Only changed by the tests.
+        "enpc_port": 3289,
     },
     "logging": {
         "level": "INFO",

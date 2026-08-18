@@ -251,16 +251,66 @@ STATUS_DECODERS = {
 }
 
 
-def summarise_status(status: Dict[str, Dict[str, object]]) -> Tuple[str, List[str]]:
-    """Reduce the four status groups to one traffic-light level and messages.
+#: Status message keys and their German / English wording.  The daemon stores
+#: keys, never prose, so the web interface can render them in either language
+#: and the support report can print both.
+STATUS_MESSAGES: Dict[str, Tuple[str, str]] = {
+    "ok": ("Betriebsbereit", "Ready"),
+    "no_status": (
+        "Kein Status lesbar (Verbindung ohne Rueckkanal)",
+        "No status readable (connection without a return channel)",
+    ),
+    "unrecoverable_error": (
+        "Nicht behebbarer Druckerfehler - Drucker aus- und einschalten",
+        "Unrecoverable printer error - power cycle the printer",
+    ),
+    "autocutter_error": (
+        "Fehler am Papierschneider - Papierstau entfernen und neu starten",
+        "Auto cutter error - clear the jam and restart",
+    ),
+    "recoverable_error": (
+        "Behebbarer Druckerfehler",
+        "Recoverable printer error",
+    ),
+    "cover_open": ("Deckel offen", "Cover open"),
+    "paper_end": ("Papier leer", "Paper end"),
+    "paper_near_end": ("Papier fast leer", "Paper near end"),
+    "printer_offline": ("Drucker meldet offline", "Printer reports offline"),
+    "not_connected": ("Nicht verbunden", "Not connected"),
+    "drawer_closed": (
+        "Kassenlade angeschlossen und geschlossen",
+        "Cash drawer connected and closed",
+    ),
+    "drawer_open_or_absent": (
+        "Kassenlade offen oder keine angeschlossen",
+        "Cash drawer open or none connected",
+    ),
+}
 
-    Returns ``("ok" | "warn" | "error" | "unknown", [message, ...])``.
+
+def status_text(key: str, language: str = "de") -> str:
+    """Human readable wording for a status key."""
+    entry = STATUS_MESSAGES.get(key)
+    if entry is None:
+        return key
+    return entry[0] if language.lower().startswith("de") else entry[1]
+
+
+def status_texts(keys: List[str], language: str = "de") -> List[str]:
+    return [status_text(key, language) for key in keys]
+
+
+def summarise_status(status: Dict[str, Dict[str, object]]) -> Tuple[str, List[str]]:
+    """Reduce the four status groups to a traffic-light level and message keys.
+
+    Returns ``("ok" | "warn" | "error" | "unknown", [key, ...])`` where the
+    keys index :data:`STATUS_MESSAGES`.
     """
-    messages: List[str] = []
+    keys: List[str] = []
     level = "ok"
 
     if not status:
-        return "unknown", ["Kein Status lesbar / no status readable"]
+        return "unknown", ["no_status"]
 
     printer = status.get("printer") or {}
     offline = status.get("offline") or {}
@@ -269,29 +319,29 @@ def summarise_status(status: Dict[str, Dict[str, object]]) -> Tuple[str, List[st
 
     if error.get("unrecoverable_error"):
         level = "error"
-        messages.append("Unrecoverable printer error")
+        keys.append("unrecoverable_error")
     if error.get("autocutter_error"):
         level = "error"
-        messages.append("Auto cutter error - remove paper jam and restart")
+        keys.append("autocutter_error")
     if error.get("recoverable_error") or error.get("auto_recoverable_error"):
         level = "error" if level == "error" else "warn"
-        messages.append("Recoverable printer error")
+        keys.append("recoverable_error")
     if offline.get("cover_open"):
         level = "error"
-        messages.append("Cover open")
+        keys.append("cover_open")
     if paper.get("paper_end"):
         level = "error"
-        messages.append("Paper end")
+        keys.append("paper_end")
     elif paper.get("paper_near_end"):
         level = "error" if level == "error" else "warn"
-        messages.append("Paper near end")
+        keys.append("paper_near_end")
     if printer.get("offline") and level == "ok":
         level = "warn"
-        messages.append("Printer reports offline")
+        keys.append("printer_offline")
 
-    if not messages:
-        messages.append("OK")
-    return level, messages
+    if not keys:
+        keys.append("ok")
+    return level, keys
 
 
 # --------------------------------------------------------------------------
@@ -438,6 +488,164 @@ def feature_test_page(
         line("QR:")
         out += align("center") + qrcode("BonBridge", size=5) + LF + align("left")
         line()
+    line("-" * columns)
+    if do_cut:
+        out += cut("partial", feed_lines=4)
+    else:
+        out += feed(5)
+    return bytes(out)
+
+
+def wrap_line(text: str, columns: int) -> List[str]:
+    """Word-wrap one logical line to the printer's column count.
+
+    A line that already fits is returned untouched - re-joining it on single
+    spaces would destroy deliberate padding (a right-aligned amount produced by
+    :func:`pad_columns`) and any indentation the user typed.
+    """
+    if columns <= 0 or len(text) <= columns:
+        return [text]
+    words = text.split(" ")
+    lines: List[str] = []
+    current = ""
+    for word in words:
+        while len(word) > columns:  # a single word longer than the paper
+            if current:
+                lines.append(current)
+                current = ""
+            lines.append(word[:columns])
+            word = word[columns:]
+        candidate = f"{current} {word}".strip() if current else word
+        if len(candidate) > columns:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    lines.append(current)
+    return lines or [""]
+
+
+def pad_columns(left: str, right: str, columns: int) -> str:
+    """``left`` flush left, ``right`` flush right, one line, never overflowing."""
+    right = right[:columns]
+    space = columns - len(right)
+    if space <= 1:
+        return right.rjust(columns)
+    return f"{left[: space - 1]:<{space - 1}} {right}"
+
+
+def status_report_page(
+    *,
+    title: str,
+    lines: List[Tuple[str, str]],
+    hints: List[str],
+    columns: int = 42,
+    font: int = 0,
+    codepage: str = "cp1252",
+    qr_payload: str = "",
+    do_cut: bool = True,
+    big_value: str = "",
+    big_label: str = "",
+) -> bytes:
+    """The slip printed on start-up: what the POS application needs to know.
+
+    The IP address is printed twice - once in double size so it can be read
+    from across the counter, once in the key/value block.
+    """
+    out = bytearray()
+    out += INIT + select_codepage(codepage) + select_font(font)
+
+    def line(text: str = "") -> None:
+        out.extend(encode_text(text, codepage) + LF)
+
+    out += align("center") + emphasis(True)
+    line(title)
+    out += emphasis(False)
+    line("=" * columns)
+
+    if big_value:
+        line()
+        if big_label:
+            line(big_label)
+        out += double_size(True) + emphasis(True)
+        line(big_value)
+        out += double_size(False) + emphasis(False)
+        line()
+
+    out += align("left")
+    for key, value in lines:
+        line(pad_columns(key, value, columns))
+
+    if hints:
+        line("-" * columns)
+        for hint in hints:
+            for wrapped in wrap_line(hint, columns):
+                line(wrapped)
+
+    if qr_payload:
+        line()
+        out += align("center")
+        out += qrcode(qr_payload, size=6)
+        out += LF
+        for wrapped in wrap_line(qr_payload, columns):
+            line(wrapped)
+        out += align("left")
+
+    line("=" * columns)
+    if do_cut:
+        out += cut("partial", feed_lines=4)
+    else:
+        out += feed(5)
+    return bytes(out)
+
+
+def paper_low_page(
+    *,
+    printer_name: str,
+    columns: int = 42,
+    codepage: str = "cp1252",
+    language: str = "de",
+    timestamp: str = "",
+    do_cut: bool = True,
+) -> bytes:
+    """Short warning slip printed once when the paper roll runs low."""
+    german = language.lower().startswith("de")
+    heading = "PAPIER FAST LEER" if german else "PAPER LOW"
+    body = (
+        [
+            "Die Papierrolle geht zur Neige.",
+            "Bitte bei naechster Gelegenheit wechseln,",
+            "damit keine Bons verloren gehen.",
+        ]
+        if german
+        else [
+            "The paper roll is running out.",
+            "Please replace it at the next opportunity",
+            "so that no receipts are lost.",
+        ]
+    )
+    out = bytearray()
+    out += INIT + select_codepage(codepage)
+
+    def line(text: str = "") -> None:
+        out.extend(encode_text(text, codepage) + LF)
+
+    out += align("center")
+    line("*" * columns)
+    out += double_size(True) + emphasis(True)
+    line(heading)
+    out += double_size(False) + emphasis(False)
+    line("*" * columns)
+    out += align("left")
+    line()
+    line(("Drucker: " if german else "Printer: ") + printer_name)
+    if timestamp:
+        line(("Zeit:    " if german else "Time:    ") + timestamp)
+    line()
+    for text in body:
+        for wrapped in wrap_line(text, columns):
+            line(wrapped)
+    line()
     line("-" * columns)
     if do_cut:
         out += cut("partial", feed_lines=4)

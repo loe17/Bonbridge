@@ -1,7 +1,12 @@
 # Weboberfläche
 
-Erreichbar unter `http://<ip>:8080/` und – wenn Avahi läuft – unter
-`http://<hostname>.local:8080/`.
+Erreichbar unter **`http://<ip>:8080/`**.
+
+> Zusätzlich wird der Name `<hostname>.local` per mDNS angekündigt. Das
+> funktioniert auf macOS, iOS, Android und den meisten Linux-Desktops, unter
+> **Windows aber nur mit installiertem Bonjour**. Verlass dich deshalb auf die
+> IP-Adresse – sie funktioniert überall. Der Name ist Komfort, keine
+> Voraussetzung.
 
 Die Oberfläche ist **bewusst ohne Passwort** und für das lokale Netz gedacht.
 Port 8080 darf nicht ins Internet weitergeleitet werden. Sprache oben rechts
@@ -9,7 +14,15 @@ umschaltbar (DE/EN).
 
 ## Übersicht
 
-Zeigt pro Drucker eine Statusampel:
+Zeigt zuerst den **Gerätestatus** und darunter pro Drucker eine Statusampel.
+
+Unter jeder Ampel steht ein aufklappbarer Punkt **„Warum? Alle Einzelprüfungen
+anzeigen"**. Dort steht jede Prüfung einzeln mit eigener Ampel und einer
+Erklärung, was zu tun ist – Unterspannung, CPU-Temperatur, freier Speicher,
+fehlende Python-Module, Zustand des Netzwerk-Listeners, Papier, Deckel,
+Zwischenspeicher. Eine gelbe Ampel ohne Begründung gibt es damit nicht mehr.
+
+Die Ampel bedeutet:
 
 | Farbe | Bedeutung |
 |---|---|
@@ -32,17 +45,70 @@ Verwaltung der Drucker-Einträge.
   Bondrucker in Frage kommen. Mit *Übernehmen* wird ein Gerät einem Drucker
   zugeordnet.
 * **Name** – frei wählbar, taucht in Testdrucken und im Support-Bericht auf.
-* **IP-Adresse für Port 9100** (`bind`) – `0.0.0.0` bedeutet „alle Adressen des
-  Geräts". Für mehrere Ausdruckgruppen bekommt jeder Drucker hier seine eigene
-  IP, siehe [07-ausdruckgruppen.md](07-ausdruckgruppen.md).
+* **IP-Adresse für Port 9100** (`bind`) – siehe den eigenen Abschnitt weiter
+  unten. Kurz: bei einem Drucker `0.0.0.0` stehen lassen.
 * **Anschluss** – `auto`, `usb`, `usblp`, `serial` oder `network`. `auto` sucht
   bei jedem Start das plausibelste lokale Gerät.
 * **Druckerprofil** – `automatisch` oder ein konkretes Modell aus der
   mitgelieferten Datenbank.
-* **Optionen** – Schnitt nach jedem Auftrag, Kassenlade nach jedem Auftrag,
-  `ESC @` vor jedem Auftrag, Statusabfrage-Intervall, Papiervorschub.
+* **Optionen** – siehe Tabelle unten.
 
 Änderungen werden sofort übernommen; die betroffenen Listener starten neu.
+Jedes Eingabefeld hat eine Erklärung, die beim Darüberfahren mit der Maus
+erscheint.
+
+### Optionen je Drucker
+
+| Option | Standard | Wirkung |
+|---|---|---|
+| **Statusbon beim Start drucken** | **an** | Druckt direkt nach dem Einschalten einen Bon mit IP-Adresse, Port und den Werten fürs Kassensystem. Das Gerät hat keinen Bildschirm – der Zettel ist der schnellste Weg zur IP. Die Einstellung liegt in `config.yaml` und überlebt einen Stromausfall. |
+| **Warnung bei Papierende** | aus | Sobald der Drucker „Papier fast leer" meldet, wird **einmalig** ein Hinweiszettel gedruckt. Er wird erst wieder gedruckt, nachdem zwischendurch neues Papier erkannt wurde. Auch dieser Zustand überlebt einen Neustart. |
+| Nach jedem Auftrag schneiden | aus | Nur einschalten, wenn das Kassensystem nicht selbst schneidet – sonst wird zweimal geschnitten. |
+| Nach jedem Auftrag Kassenlade öffnen | aus | Für Küchendrucker meist unerwünscht. |
+| Vor jedem Auftrag zurücksetzen (`ESC @`) | aus | Hilft, wenn ein vorheriger Auftrag Schriftgröße oder Ausrichtung verstellt hinterlässt. |
+| Statusabfrage aktiv | an | Ohne sie bleibt die Ampel grau. |
+| Abfrageintervall | 10 s | Kleinere Werte belasten den Drucker unnötig. |
+| Zeilenvorschub nach Auftrag | 0 | Zusätzliche Leerzeilen vor dem Schnitt. |
+
+### „IP-Adresse für Port 9100" – wofür ist das da?
+
+Dieses Feld bestimmt, **an welche IP-Adresse dieses Geräts** der Druckerport
+9100 gebunden wird.
+
+**`0.0.0.0` (Standard) = alle Adressen des Geräts.** Das Kassensystem erreicht
+den Drucker dann unter jeder IP, die der Pi hat – über LAN, über WLAN, und auch
+noch, wenn sich die Adresse per DHCP ändert. **Bei einem einzigen Drucker ist
+das immer die richtige Einstellung. Dann musst du hier nichts anfassen.**
+
+Eine **feste IP** trägst du nur in einem Fall ein: wenn **mehrere Drucker an
+diesem einen Gerät** hängen. Der Grund liegt im Kassensystem, nicht in
+BonBridge: OrderAssist (und die meisten anderen) identifizieren einen Drucker
+**ausschließlich über die IP-Adresse**, der Port ist fest 9100 und lässt sich
+in der App nicht ändern. Zwei Drucker unter derselben IP wären für die App
+derselbe Drucker.
+
+Die Lösung: Das Gerät bekommt eine zweite (dritte, …) IP-Adresse, und jeder
+Drucker lauscht nur auf seiner eigenen:
+
+```
+Pi 4, eine Netzwerkkarte, zwei USB-Drucker
+  192.168.1.50   Weboberfläche  (Haupt-IP des Geräts)
+  192.168.1.51   Drucker Küche  -> Port 9100
+  192.168.1.52   Drucker Theke  -> Port 9100
+```
+
+Wichtig: Die zusätzliche IP muss vorher **auf dem Gerät angelegt** werden,
+sonst kann der Listener nicht starten (die Übersicht zeigt dann einen roten
+Netzwerk-Listener mit genau dieser Begründung). Wie das geht, steht in
+[07-ausdruckgruppen.md](07-ausdruckgruppen.md).
+
+Weitere sinnvolle Fälle für eine feste Bindung:
+
+* **Nur ein Netz bedienen:** Hängt das Gerät gleichzeitig im LAN und im WLAN
+  und soll nur über eine der beiden Strecken drucken, trägst du hier die
+  Adresse der gewünschten Schnittstelle ein.
+* **Absicherung:** Mit einer festen Bindung nimmt der Drucker keine Aufträge
+  über andere Netze des Geräts an.
 
 ## Funktionen
 
@@ -73,6 +139,43 @@ Darunter stehen die **empfohlenen Werte fürs Kassensystem** und die
 
 Diese Tests verbrauchen Papier und laufen deshalb nie automatisch.
 
+## Drucken
+
+Ein vollständiger Bon-Editor mit **Live-Vorschau**. Links wird der Bon
+zusammengestellt, rechts erscheint sofort, wie er auf dem Papier aussehen wird –
+in der echten Zeilenbreite des erkannten Druckers.
+
+| Feld | Bedeutung |
+|---|---|
+| Drucker | An welchen Drucker der Bon geht |
+| Überschrift | Große, fette Zeile ganz oben (optional) |
+| Inhalt | Eine Zeile hier = eine Zeile auf dem Bon |
+| Fußzeile | Kleiner, zentrierter Text am Ende |
+| QR-Code | Wird unten als QR gedruckt (optional) |
+| Am Ende schneiden | Nur wirksam, wenn der Drucker einen Schneider hat |
+| Kassenlade öffnen | Löst nach dem Druck den Impuls aus |
+
+Zwei Abkürzungen im Inhaltsfeld:
+
+* Eine Zeile, die nur `---` enthält, wird zu einer **Trennlinie**.
+* `Text | Wert` setzt den Wert **rechtsbündig** – genau richtig für Preise:
+
+  ```
+  2x Cola 0,4l | 7,00
+  1x Pommes    | 3,50
+  ---
+  Summe        | 15,40
+  ```
+
+Die Vorschau kommt aus derselben Funktion, die auch die Druckdaten erzeugt –
+was du siehst, wird gedruckt. Kann der Drucker etwas nicht (kein Schneider,
+kein QR-Code), steht das als Hinweis unter der Vorschau und der entsprechende
+Befehl wird weggelassen, statt einen Fehler zu erzeugen.
+
+Wofür das gut ist: Testbons ohne Kassensystem, Beschriftungen, Übergabezettel,
+Tagesabschluss-Notizen – und vor allem zum Prüfen, ob Zeilenbreite und
+Zeichensatz stimmen, bevor man das Kassensystem konfiguriert.
+
 ## Diagnose
 
 * **Letzte Druckaufträge** – Nummer, Quelle (IP des Kassensystems), Größe,
@@ -83,6 +186,11 @@ Diese Tests verbrauchen Papier und laufen deshalb nie automatisch.
 * **Zwischenspeicher leeren** – verwirft gespoolte Aufträge, die nicht mehr
   gedruckt werden sollen.
 * **Status / Identity** – die rohen Antworten von `DLE EOT` und `GS I`.
+* **Alle Prüfungen** – jede einzelne Gesundheitsprüfung von Gerät und Druckern
+  mit Begründung. Das ist die Antwort auf „warum steht da eine Warnung?".
+* **Automatische Druckersuche** – ob mDNS und der Epson-Suchdienst laufen und,
+  am wichtigsten: **welche Suchanfragen tatsächlich angekommen sind**, jeweils
+  mit Hexdump. Siehe [06-diagnose.md](06-diagnose.md).
 * **Systemausgaben** – `lsusb`, `/dev/usb/`, `ss -tlnp`, `ip addr`,
   `dmesg | tail`, Kernelmodule, Dienststatus.
 * **Support-Bericht herunterladen** – eine Textdatei mit allem oben Genannten.
@@ -99,8 +207,10 @@ Beispielbefehle für CUPS, Windows, macOS und die Kommandozeile.
 
 * Gerätebezeichnung, Port der Weboberfläche, RAW-Port
 * mDNS/Bonjour-Ankündigung an/aus
-* Epson-Suchprotokoll (ENPC) beantworten – **experimentell**, siehe
-  [06-diagnose.md](06-diagnose.md)
+* Auf die Epson-Druckersuche antworten (ENPC, UDP 3289) – standardmäßig an,
+  siehe [06-diagnose.md](06-diagnose.md)
+* Suchanfragen protokollieren – damit lässt sich prüfen, ob die Kassen-App
+  überhaupt sucht
 * Systeminformationen: Modell, Betriebssystem, Kernel, Architektur, Python,
   Laufzeit, freier Speicher
 * Links auf die Dokumentation in der eingestellten Sprache
@@ -128,6 +238,13 @@ einem Skript oder einem Monitoring-System ansprechen.
 | GET | `/api/diagnostics` | Systeminfos + Kommandoausgaben |
 | GET | `/api/report` | Support-Bericht als Text |
 | POST | `/api/restart` | Drucker und Listener neu starten |
+| GET | `/api/health` | Alle Einzelprüfungen mit Begründung |
+| GET | `/api/discovery` | Zustand und Protokoll der automatischen Suche |
+| POST | `/api/discovery/clear` | Suchanfragen-Protokoll leeren |
+| POST | `/api/printers/<id>/compose` | Bon bauen: `{"spec": …, "print": false}` liefert die Vorschau |
+| POST | `/api/printers/<id>/drawer-check` | Aktiver Kassenladen-Test |
+| POST | `/api/printers/<id>/startup-report` | Statusbon erneut drucken |
+| GET | `/docs`, `/docs/de/<datei>.md` | Dokumentation als HTML |
 
 Beispiel:
 

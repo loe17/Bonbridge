@@ -34,8 +34,12 @@ Afterwards:
 
 ```
 Web interface :  http://<ip>:8080/
+Documentation :  http://<ip>:8080/docs
 POS printing  :  <ip>  port 9100  (RAW / ESC-POS)
 ```
+
+You do not have to hunt for the IP address: **BonBridge prints a slip with its
+own address, the port and the POS settings every time it starts.**
 
 ## What it does
 
@@ -60,6 +64,14 @@ POS printing  :  <ip>  port 9100  (RAW / ESC-POS)
   serial/RS-232 and network.
 * **CUPS is optional**, not required. When enabled, its queue prints *through*
   BonBridge rather than fighting it for the device.
+* **Prints its own address on start-up**, so a device without a screen still
+  tells you where to point the app.
+* **Explains every warning.** Each traffic light expands into the individual
+  checks - under-voltage, temperature, disk, listener, paper - with what to do.
+* **Print receipts from the browser** with a live preview in the real paper
+  width.
+* **Documentation on the device**, rendered as HTML at `/docs`, no internet
+  needed.
 
 ## Quick check
 

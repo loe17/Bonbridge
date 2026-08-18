@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from . import caps, escpos, paths
+from . import caps, escpos, paths, state
 from .transports import TransportError, build_transport
 from .transports.base import BaseTransport
 
@@ -92,6 +92,17 @@ class PrinterWorker(threading.Thread):
         self.recent_jobs: List[Dict[str, Any]] = []
         self._last_status_attempt = 0.0
         self._reconnect_delay = 1.0
+
+        # Cash drawer: the pin can only prove "connected" when it reads LOW, so
+        # remember that fact across restarts (see caps.drawer_state).
+        self.drawer: Dict[str, Any] = caps.drawer_state({})
+        self._drawer_seen = bool(state.get("drawer_seen", self.printer_id, False))
+        # Paper-low warning: printed once per "roll", reset when paper is OK
+        # again.  Persisted so a reboot does not reprint it.
+        self._paper_low_reported = bool(state.get("paper_low_reported", self.printer_id, False))
+        self._startup_report_done = False
+        #: Filled in by the daemon so the startup slip can name the IP address.
+        self.report_context: Dict[str, Any] = {}
 
         self.spool_dir = paths.SPOOL_DIR / self.printer_id
 
@@ -227,6 +238,69 @@ class PrinterWorker(threading.Thread):
             profile_id,
             reason,
         )
+        self._maybe_startup_report()
+
+    # ------------------------------------------------------------------
+    # Automatic slips
+    # ------------------------------------------------------------------
+
+    def _maybe_startup_report(self) -> None:
+        """Print the "here is my IP address" slip, once per daemon start."""
+        if self._startup_report_done:
+            return
+        self._startup_report_done = True
+        if not self.options.get("startup_report", True):
+            log.info("[%s] startup report disabled", self.printer_id)
+            return
+        builder = self.report_context.get("build_startup_report")
+        if not callable(builder):
+            return
+        try:
+            payload = builder(self)
+        except Exception as exc:  # noqa: BLE001 - never block start-up
+            log.warning("[%s] cannot build the startup report: %s", self.printer_id, exc)
+            return
+        if payload:
+            self.submit_bytes(payload, source="startup", label="startup-report")
+            log.info("[%s] startup report queued", self.printer_id)
+
+    def _maybe_paper_low(self) -> None:
+        """Print a warning slip when the roll starts running out."""
+        paper = (self.status or {}).get("paper") or {}
+        near_end = bool(paper.get("paper_near_end")) or bool(paper.get("paper_end"))
+
+        if not near_end:
+            if self._paper_low_reported:
+                self._paper_low_reported = False
+                state.set_value("paper_low_reported", self.printer_id, False)
+                log.info("[%s] paper level back to normal", self.printer_id)
+            return
+
+        if self._paper_low_reported or not self.options.get("paper_low_warning", False):
+            return
+
+        capabilities = self.capabilities or {}
+        recommendation = capabilities.get("recommendation") or {}
+        features = capabilities.get("features") or {}
+        payload = escpos.paper_low_page(
+            printer_name=str(self.config.get("name") or self.printer_id),
+            columns=int(recommendation.get("columns") or 42),
+            codepage=str(recommendation.get("codepage") or "cp1252"),
+            language=str(self.report_context.get("language") or "de"),
+            timestamp=time.strftime("%Y-%m-%d %H:%M"),
+            do_cut=bool((features.get("cutter") or {}).get("effective", True)),
+        )
+        self.submit_bytes(payload, source="paper-low", label="paper-low-warning")
+        self._paper_low_reported = True
+        state.set_value("paper_low_reported", self.printer_id, True)
+        log.info("[%s] paper low - warning slip queued", self.printer_id)
+
+    def note_drawer_seen(self) -> None:
+        """Remember that a cash drawer proved to be connected."""
+        if not self._drawer_seen:
+            self._drawer_seen = True
+            state.set_value("drawer_seen", self.printer_id, True)
+            log.info("[%s] cash drawer detected as connected", self.printer_id)
 
     # ------------------------------------------------------------------
     # Public API
@@ -328,6 +402,13 @@ class PrinterWorker(threading.Thread):
             self.status = status
             self.status_level, self.status_messages = escpos.summarise_status(status)
             self.status_checked_at = time.time()
+
+            printer_status = status.get("printer") or {}
+            if printer_status.get("drawer_pin_high") is False:
+                self.note_drawer_seen()
+            self.drawer = caps.drawer_state(status, seen_connected=self._drawer_seen)
+
+            self._maybe_paper_low()
             return status
 
     # ------------------------------------------------------------------
@@ -546,6 +627,7 @@ class PrinterWorker(threading.Thread):
             "queued": self.pending(),
             "spooled": self.spool_count(),
             "identity": self.identity,
+            "drawer": self.drawer,
             "capabilities": self.capabilities,
             "recent_jobs": self.recent_jobs,
             "uptime": time.time() - self.started_at,

@@ -39,6 +39,7 @@ from mock_printer import MockPrinter  # noqa: E402
 RAW_PORT = 19100
 WEB_PORT = 18080
 PRINTER_PORT = 19200
+ENPC_PORT = 13289
 
 FAILURES = []
 
@@ -70,7 +71,7 @@ def main() -> int:
         {
             "web": {"bind": "127.0.0.1", "port": WEB_PORT},
             "raw": {"port": RAW_PORT},
-            "discovery": {"mdns": False, "enpc": False},
+            "discovery": {"mdns": False, "enpc": True, "log_probes": True, "enpc_port": ENPC_PORT},
             "printers": [
                 {
                     "id": "theke1",
@@ -131,9 +132,17 @@ def main() -> int:
         time.sleep(0.3)
         entry = get_json("/api/printers/theke1")["printer"]
         check(entry["status_level"] == "error", "paper end raises an error state")
+        check("paper_end" in (entry["status_messages"] or []), "paper end message key present")
+        health = get_json("/api/health")["health"]
+        check(health["level"] in ("error", "warn"), "health level follows the printer state")
+        problems = health["printers"]["theke1"]["problems"]
         check(
-            any("Paper end" in message for message in entry["status_messages"]),
-            "paper end message present",
+            any("paper" in c["id"] for c in problems),
+            "health explains the paper problem",
+        )
+        check(
+            all(c["title_de"] and c["title_en"] for c in health["device"]["checks"]),
+            "device checks are bilingual",
         )
         printer.state.paper_end = False
 
@@ -163,6 +172,135 @@ def main() -> int:
         time.sleep(1.0)
         check(b"\x1dV" not in printer.data[before:], "cut suppressed when feature is off")
 
+        # 11. the start-up slip was printed and carries the address
+        start_slip = printer.data[:20000]
+        check(b"BonBridge" in start_slip, "startup slip printed")
+        check(b"127.0.0.1" in start_slip, "startup slip contains the IP address")
+        check(str(RAW_PORT).encode() in start_slip, "startup slip contains the port")
+
+        # 12. cash drawer: HIGH is ambiguous, LOW proves a drawer exists
+        entry = get_json("/api/printers/theke1")["printer"]
+        check(entry["drawer"]["state"] == "open_or_absent", "drawer reported as open or absent")
+        check(entry["drawer"]["connected"] is False, "ambiguous drawer is not claimed as connected")
+        printer.state.drawer_pin_high = False
+        get_json("/api/printers/theke1/refresh", method="POST")
+        time.sleep(0.4)
+        entry = get_json("/api/printers/theke1")["printer"]
+        check(entry["drawer"]["state"] == "connected_closed", "closed drawer detected")
+        check(entry["drawer"]["connected"] is True, "closed drawer counts as connected")
+        printer.state.drawer_pin_high = True
+        get_json("/api/printers/theke1/refresh", method="POST")
+        time.sleep(0.4)
+        entry = get_json("/api/printers/theke1")["printer"]
+        check(
+            entry["drawer"]["state"] == "connected_open",
+            "remembered drawer upgrades the ambiguous reading",
+        )
+
+        # 13. paper-low warning slip, printed once
+        get_json(
+            "/api/printers/theke1",
+            method="PATCH",
+            payload={"options": {"paper_low_warning": True}},
+        )
+        time.sleep(1.5)
+        printer.state.paper_near_end = True
+        before = len(printer.data)
+        get_json("/api/printers/theke1/refresh", method="POST")
+        time.sleep(1.2)
+        slip = printer.data[before:]
+        check(escpos.encode_text("PAPIER FAST LEER", "cp1252") in slip, "paper-low slip printed")
+        before = len(printer.data)
+        get_json("/api/printers/theke1/refresh", method="POST")
+        time.sleep(1.0)
+        check(
+            escpos.encode_text("PAPIER FAST LEER", "cp1252") not in printer.data[before:],
+            "paper-low slip is not repeated",
+        )
+        printer.state.paper_near_end = False
+        get_json("/api/printers/theke1/refresh", method="POST")
+        time.sleep(0.4)
+
+        # 14. compose: preview first, then print
+        spec = {
+            "elements": [
+                {"type": "text", "text": "Tisch 7", "align": "center", "bold": True, "size": "double"},
+                {"type": "divider"},
+                {"type": "kv", "left": "2x Cola", "right": "7,00"},
+                {"type": "kv", "left": "Summe", "right": "15,40"},
+                {"type": "qr", "data": "https://example.invalid/"},
+            ],
+            "cut": True,
+        }
+        result = get_json(
+            "/api/printers/theke1/compose", method="POST", payload={"spec": spec, "print": False}
+        )
+        check(result["columns"] == 56, "preview uses the detected line width")
+        texts = [line["text"] for line in result["preview"]]
+        check(any("Tisch 7" in text for text in texts), "preview contains the heading")
+        check(
+            any(line["double"] and line["align"] == "center" for line in result["preview"]),
+            "preview carries the formatting attributes",
+        )
+        kv_lines = [
+            text for text in texts if text.startswith("2x Cola") and text.rstrip().endswith("7,00")
+        ]
+        check(bool(kv_lines), "preview contains the price line")
+        check(
+            bool(kv_lines) and len(kv_lines[0]) == result["columns"],
+            f"price line is padded to the full width ({result['columns']})",
+        )
+        check(
+            bool(kv_lines) and kv_lines[0].endswith("7,00") and "  " in kv_lines[0],
+            "amount is flush right, padding preserved",
+        )
+        before = len(printer.data)
+        check(len(printer.data) == before, "preview alone prints nothing")
+        result = get_json(
+            "/api/printers/theke1/compose", method="POST", payload={"spec": spec, "print": True}
+        )
+        time.sleep(1.2)
+        printed = printer.data[before:]
+        check(escpos.encode_text("Summe", "cp1252") in printed, "composed receipt printed")
+        check(b"\x1d(k" in printed, "composed receipt contains the QR code")
+
+        # 15. discovery: an ENPC probe is logged and answered
+        probe_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe_socket.settimeout(2.0)
+        probe = b"EPSONQ" + bytes([0x03, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00])
+        probe_socket.sendto(probe, ("127.0.0.1", ENPC_PORT))
+        reply = b""
+        try:
+            reply, _ = probe_socket.recvfrom(1024)
+        except socket.timeout:
+            pass
+        probe_socket.close()
+        check(reply.startswith(b"EPSONq"), "ENPC probe answered with the reply magic")
+        discovery = get_json("/api/discovery")["discovery"]["enpc"]
+        check(discovery["requests"] >= 1, "ENPC probe counted")
+        check(len(discovery["probes"]) >= 1, "ENPC probe recorded with a hexdump")
+        queries = [entry for entry in discovery["probes"] if entry.get("magic") == "EPSONQ"]
+        check(bool(queries), "the query is recorded as an ENPC query")
+        check("45 50 53 4f 4e 51" in queries[0]["hexdump"], "hexdump shows the magic")
+        check(queries[0]["answered"] is True, "probe log records that it was answered")
+        check(
+            len(discovery["probes"]) == len(queries),
+            "no self-answer loop: only real probes are logged",
+        )
+
+        # 16. documentation is served as HTML
+        with urllib.request.urlopen(f"http://127.0.0.1:{WEB_PORT}/docs?lang=de", timeout=5) as response:
+            index_html = response.read().decode()
+        check("Dokumentation" in index_html, "documentation index rendered")
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{WEB_PORT}/docs/de/07-ausdruckgruppen.md", timeout=5
+        ) as response:
+            doc_html = response.read().decode()
+        check("<h1" in doc_html and "<table" in doc_html, "documentation page rendered as HTML")
+        check("docnav" in doc_html, "documentation page has navigation")
+        with urllib.request.urlopen(f"http://127.0.0.1:{WEB_PORT}/docs-img/wiring-usb.svg", timeout=5) as response:
+            check(response.status == 200, "documentation image served")
+
         # 9. spooling: printer unreachable -> job is kept, then delivered
         printer.stop()
         time.sleep(0.3)
@@ -185,7 +323,7 @@ def main() -> int:
         check("BonBridge support report" in report, "support report generated")
         check("Printer 'Theke 1'" in report, "support report contains the printer")
 
-        # 11. static assets
+        # 17. static assets
         with urllib.request.urlopen(f"http://127.0.0.1:{WEB_PORT}/", timeout=5) as response:
             html = response.read().decode()
         check("BonBridge" in html and "app.js" in html, "web interface served")
