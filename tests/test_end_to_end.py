@@ -30,7 +30,7 @@ os.environ["BONBRIDGE_STATE_DIR"] = str(TMP / "state")
 os.environ["BONBRIDGE_LOG_DIR"] = str(TMP / "log")
 os.environ["BONBRIDGE_ROOT"] = str(ROOT)
 
-from bonbridge import escpos, paths  # noqa: E402
+from bonbridge import escpos, health, paths  # noqa: E402
 from bonbridge.config import Config  # noqa: E402
 from bonbridge.daemon import BonBridge  # noqa: E402
 from bonbridge.web.server import WebServer  # noqa: E402
@@ -99,6 +99,38 @@ def check_thread_subclasses() -> None:
     check(not shadowed, f"instance attributes do not shadow Thread methods ({shadowed})")
 
 
+def check_system_info_cache() -> None:
+    """Expensive readings must be cached - the overview is polled constantly.
+
+    ``ip_addresses()`` forks ``ip`` and ``read_throttled()`` may fork
+    ``vcgencmd``.  With a browser tab open, the overview endpoint asks for both
+    every few seconds; on a single-core Pi 1 that is real load.
+    """
+    from bonbridge import sysinfo
+
+    sysinfo.clear_cache()
+    calls = []
+
+    def producer() -> int:
+        calls.append(1)
+        return len(calls)
+
+    values = [sysinfo.cached("unit-test", 60.0, producer) for _ in range(5)]
+    check(values == [1, 1, 1, 1, 1] and len(calls) == 1, "cached() calls the producer once")
+    check(sysinfo.cached("unit-test", 0, producer) == 2, "ttl=0 bypasses the cache")
+
+    sysinfo.clear_cache()
+    check(sysinfo.cached("unit-test", 60.0, producer) == 3, "clear_cache() drops the entry")
+
+    sysinfo.clear_cache()
+    started = time.time()
+    for _ in range(50):
+        sysinfo.ip_addresses()
+        health.read_throttled()
+    elapsed = time.time() - started
+    check(elapsed < 0.5, f"50 cached overview readings stay cheap ({elapsed * 1000:.0f} ms)")
+
+
 def main() -> int:
     printer = MockPrinter("127.0.0.1", PRINTER_PORT).start()
     print(f"mock printer on 127.0.0.1:{PRINTER_PORT}")
@@ -131,6 +163,7 @@ def main() -> int:
     try:
         # 0. structural check that survives Python upgrades
         check_thread_subclasses()
+        check_system_info_cache()
 
         # 1. the RAW listener accepts a job like a POS application would
         payload = b"\x1b@Bestellung Tisch 4\n2x Cola\n1x Pommes\n\n\n"

@@ -26,6 +26,7 @@ That is the whole installation. It works on
 | Raspberry Pi Zero 2 W | recommended, needs a USB-OTG adapter |
 | Raspberry Pi 3 / 4 / 5 | plug the printer into a USB-A port (Pi 4: prefer the black USB 2.0 ports) |
 | x86-64 mini PC / thin client | Debian 11-13, Ubuntu 22.04+ |
+| Raspberry Pi 1 / 2 / Zero (ARMv6, ARMv7) | works - use the **32-bit** Lite image, see [hardware](docs/en/01-hardware.md#raspberry-pi-1-and-other-old-boards) |
 
 No compiler, no `pip`, no third-party git clone at install time - everything
 BonBridge needs is either a Debian package or bundled in `vendor/`.

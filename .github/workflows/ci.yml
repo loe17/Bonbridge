@@ -61,8 +61,11 @@ jobs:
       - name: Install linters
         run: pip install ruff
 
+      # Real gate, not advisory: the rule set is pinned in ruff.toml so that a
+      # new ruff release cannot turn the job red (or, worse, demand syntax that
+      # Python 3.9 on Raspberry Pi OS Bullseye does not understand).
       - name: ruff
-        run: ruff check src tests || true
+        run: ruff check src tests
 
       - name: shellcheck
         run: |

@@ -4,6 +4,43 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - 2026-08-19
+
+Support for very old boards - a Raspberry Pi 1 or the original Pi Zero (ARMv6,
+one core at 700 MHz, 256-512 MB RAM) now has documented, tested expectations,
+and the web interface no longer creates avoidable background load on them.
+
+### Added
+
+- **Raspberry Pi 1 / Pi Zero / Pi 2 documented** in the hardware chapter (DE and
+  EN): which image to flash (32-bit only - the 64-bit image does not boot on
+  ARMv6), how the LAN socket on the Model B/B+ behaves (it hangs off the same
+  USB controller as the printer, which is irrelevant at receipt sizes), why the
+  printer's own 24 V supply keeps the weak polyfuses out of the picture, what to
+  expect in terms of speed, and until when Debian carries these boards.
+- **The installer checks the Python version** and says so, instead of failing
+  later with an import error. 3.9 or newer is required.
+- **The installer warns before adding CUPS on a board with under ~700 MB RAM.**
+  CUPS is optional and BonBridge does not need it.
+- **`ruff.toml`** pins the lint rule set and `target-version = "py39"`, and the
+  CI lint job is now a real gate instead of `|| true`. Without the pin, a new
+  Ruff release started demanding PEP 585 syntax that Python 3.9 on Raspberry Pi
+  OS Bullseye does not understand.
+
+### Changed
+
+- **Readings that fork a helper process are cached.** `/api/overview` is polled
+  every five seconds by every open browser tab, and it read the IP addresses via
+  `ip` and the throttling state via `vcgencmd` on every single request. Both are
+  now cached (15 s and 30 s); the board model and `/etc/os-release` are cached
+  for longer. On a Pi 1 this removes two fork+exec cycles every five seconds per
+  tab; on faster boards it is simply less pointless work.
+
+### Fixed
+
+- Two source lines exceeded the line limit that the new lint gate enforces; one
+  of them was a genuinely unreadable nested expression.
+
 ## [1.1.1] - 2026-08-18
 
 ### Fixed
@@ -240,6 +277,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.1.2]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.2
 [1.1.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.1
 [1.1.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.0
 [1.0.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.0.1

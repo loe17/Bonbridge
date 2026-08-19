@@ -612,7 +612,11 @@ class PrinterWorker(threading.Thread):
             "enabled": self.enabled,
             "connected": self.connected,
             "bind": self.config.get("bind") or "0.0.0.0",
-            "transport": transport.describe() if transport else {"type": (self.config.get("transport") or {}).get("type", "auto")},
+            "transport": (
+                transport.describe()
+                if transport
+                else {"type": (self.config.get("transport") or {}).get("type", "auto")}
+            ),
             "connection": transport.connection_label() if transport else "",
             "status_level": self.status_level,
             "status_messages": self.status_messages,

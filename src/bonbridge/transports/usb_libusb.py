@@ -108,6 +108,9 @@ def enumerate_devices() -> List[Dict[str, Any]]:
             vendor_known = device.idVendor in KNOWN_VENDORS
             if not (is_printer_class or vendor_known):
                 continue
+            vendor_label = _string_safe(device, device.iManufacturer) or KNOWN_VENDORS.get(
+                device.idVendor, "USB"
+            )
             found.append(
                 {
                     "transport": "usb",
@@ -124,8 +127,7 @@ def enumerate_devices() -> List[Dict[str, Any]]:
                     "printer_class": is_printer_class,
                     "interfaces": interfaces,
                     "label": (
-                        f"{_string_safe(device, device.iManufacturer) or KNOWN_VENDORS.get(device.idVendor, 'USB')} "
-                        f"{_string_safe(device, device.iProduct) or ''}".strip()
+                        f"{vendor_label} {_string_safe(device, device.iProduct) or ''}".strip()
                         + f" ({device.idVendor:04x}:{device.idProduct:04x})"
                     ),
                 }

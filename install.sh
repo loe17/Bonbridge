@@ -110,12 +110,30 @@ apt-get update -qq
 PACKAGES="python3 python3-yaml python3-usb python3-serial libusb-1.0-0 iproute2 ca-certificates"
 # avahi makes bonbridge.local work; harmless if it is already there
 PACKAGES="$PACKAGES avahi-daemon"
+# Small boards (Pi 1 / Zero with 256-512 MB) really do not want CUPS on top.
+MEM_KB="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
+case "$MEM_KB" in ''|*[!0-9]*) MEM_KB=0 ;; esac
+if [ "$WITH_CUPS" -eq 1 ] && [ "$MEM_KB" -gt 0 ] && [ "$MEM_KB" -lt 700000 ]; then
+  warn "only $((MEM_KB / 1024)) MB RAM - CUPS is optional and costs memory"
+  warn "BonBridge does not need it; consider installing without --with-cups"
+fi
 if [ "$WITH_CUPS" -eq 1 ]; then
   PACKAGES="$PACKAGES cups cups-filters build-essential cmake libcups2-dev libcupsimage2-dev"
 fi
 # shellcheck disable=SC2086
 apt-get install -y -qq $PACKAGES || die "package installation failed"
 ok "packages installed"
+
+# BonBridge needs Python 3.9+.  Every Raspberry Pi OS from Bullseye on and every
+# Debian from 11 on satisfies this; say so clearly rather than failing later.
+PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "")"
+if [ -z "$PYVER" ]; then
+  die "python3 is not usable after installation"
+elif python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
+  ok "python: $PYVER"
+else
+  die "python $PYVER is too old - BonBridge needs 3.9 or newer"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. Source: local checkout or download

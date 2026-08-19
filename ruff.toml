@@ -1,0 +1,19 @@
+# Lint configuration for BonBridge.
+#
+# The rule set is pinned on purpose.  Ruff changes its defaults between
+# releases, and without this file a new Ruff version starts demanding PEP 585
+# syntax (`dict[str, int]` instead of `Dict[str, int]`) that would break the
+# oldest interpreter we support.  BonBridge has to keep running on Raspberry Pi
+# OS Bullseye, which ships Python 3.9.
+
+target-version = "py39"
+line-length = 116
+
+[lint]
+# pycodestyle errors + warnings and pyflakes.  These are the rules that catch
+# real mistakes; style opinions beyond that are left alone.
+select = ["E", "F", "W"]
+
+[lint.per-file-ignores]
+# The test suite deliberately imports modules for their side effects.
+"tests/*" = ["E402"]

@@ -96,8 +96,18 @@ def worst_level(levels: List[str]) -> str:
 # --------------------------------------------------------------------------
 
 
-def read_throttled() -> Optional[int]:
-    """Read the Raspberry Pi throttling bitmask, or ``None`` on other boards."""
+def read_throttled(ttl: float = 30.0) -> Optional[int]:
+    """Read the Raspberry Pi throttling bitmask, or ``None`` on other boards.
+
+    Cached for ``ttl`` seconds.  Without the sysfs node this forks ``vcgencmd``,
+    and the overview page asks for it every few seconds per open browser tab -
+    on a single-core Pi 1 that alone would be noticeable load.  Under-voltage
+    events latch in the "past" bits, so a slightly stale reading loses nothing.
+    """
+    return sysinfo.cached("throttled", ttl, _read_throttled)
+
+
+def _read_throttled() -> Optional[int]:
     for path in (
         "/sys/devices/platform/soc/soc:firmware/get_throttled",
         "/sys/devices/platform/soc:firmware/get_throttled",

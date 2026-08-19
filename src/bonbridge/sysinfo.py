@@ -1,4 +1,11 @@
-"""System information for the diagnostics page and the support report."""
+"""System information for the diagnostics page and the support report.
+
+The overview endpoint is polled every few seconds by every open browser tab.
+Anything in here that forks a helper process (``ip``, ``vcgencmd``) or reads
+sysfs is therefore wrapped in a short time-to-live cache: on a single-core
+700 MHz board (Raspberry Pi 1 / Zero) a fork+exec every five seconds is a
+measurable share of the CPU, and none of these values change that quickly.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +15,38 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import __version__
+
+_cache_lock = threading.Lock()
+_cache: Dict[str, Tuple[float, Any]] = {}
+
+
+def cached(key: str, ttl: float, producer: Callable[[], Any]) -> Any:
+    """Return ``producer()``, reusing the previous result for ``ttl`` seconds.
+
+    ``ttl <= 0`` disables caching, which keeps the tests honest.
+    """
+    if ttl <= 0:
+        return producer()
+    now = time.monotonic()
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is not None and now - entry[0] < ttl:
+            return entry[1]
+    value = producer()
+    with _cache_lock:
+        _cache[key] = (now, value)
+    return value
+
+
+def clear_cache() -> None:
+    """Drop all cached readings (used by tests and after config changes)."""
+    with _cache_lock:
+        _cache.clear()
 
 
 def _run(command: List[str], timeout: float = 5.0) -> str:
@@ -36,8 +71,15 @@ def hostname() -> str:
     return socket.gethostname()
 
 
-def ip_addresses() -> List[Dict[str, str]]:
-    """All global IPv4/IPv6 addresses with their interface names."""
+def ip_addresses(ttl: float = 15.0) -> List[Dict[str, str]]:
+    """All global IPv4/IPv6 addresses with their interface names.
+
+    Cached for ``ttl`` seconds because it shells out to ``ip``.
+    """
+    return cached("ip_addresses", ttl, _read_ip_addresses)
+
+
+def _read_ip_addresses() -> List[Dict[str, str]]:
     addresses: List[Dict[str, str]] = []
     output = _run(["ip", "-o", "addr", "show", "scope", "global"])
     for line in output.splitlines():
@@ -95,6 +137,11 @@ def primary_ipv4() -> str:
 
 
 def os_release() -> Dict[str, str]:
+    """Contents of ``/etc/os-release``; cached, it only changes on upgrade."""
+    return cached("os_release", 300.0, _read_os_release)
+
+
+def _read_os_release() -> Dict[str, str]:
     info: Dict[str, str] = {}
     try:
         with open("/etc/os-release", "r", encoding="utf-8") as handle:
@@ -109,6 +156,10 @@ def os_release() -> Dict[str, str]:
 
 def model_name() -> str:
     """Raspberry Pi / board model, or the DMI product name on x86."""
+    return cached("model_name", 3600.0, _read_model_name)
+
+
+def _read_model_name() -> str:
     for path in ("/proc/device-tree/model", "/sys/devices/virtual/dmi/id/product_name"):
         try:
             with open(path, "rb") as handle:
