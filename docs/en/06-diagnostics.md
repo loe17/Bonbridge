@@ -228,6 +228,20 @@ Check:
 ss -tlnp | grep -E ':(9100|8080|631)'
 ```
 
+## "The printer prints, but the model is not detected"
+
+If a generic profile (`generic-80mm`) is shown instead of the model, line
+width, font and feature list are guesses. Causes and remedies are in
+[10-updates.md](10-updates.md#when-no-model-is-detected). Short version: press
+*Re-detect*, switch the transport to `usb` (libusb), or pick the profile by
+hand.
+
+## Network outage
+
+When nothing prints any more, the printer is often not at fault - the network
+is. BonBridge prints a notice by itself in that case, see
+[10-updates.md](10-updates.md#network-watchdog).
+
 ## Reinstall / update
 
 ```bash

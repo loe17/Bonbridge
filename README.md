@@ -106,6 +106,7 @@ Details: [`docs/en/04-pos-integration.md`](docs/en/04-pos-integration.md)
 | Several print groups | [07-print-groups.md](docs/en/07-print-groups.md) | [07-ausdruckgruppen.md](docs/de/07-ausdruckgruppen.md) |
 | Architecture | [08-architecture.md](docs/en/08-architecture.md) | [08-architektur.md](docs/de/08-architektur.md) |
 | **Third-party code & sources** | [09-references.md](docs/en/09-references.md) | [09-referenzen.md](docs/de/09-referenzen.md) |
+| **Updates, network watchdog, maintenance** | [10-updates.md](docs/en/10-updates.md) | [10-updates.md](docs/de/10-updates.md) |
 
 ## Licence
 

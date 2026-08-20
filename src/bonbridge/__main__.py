@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from . import __version__, paths
 from .config import Config
@@ -53,6 +53,16 @@ def build_parser() -> argparse.ArgumentParser:
     test = subparsers.add_parser("test", help="send a test page and exit")
     test.add_argument("--printer", default=None, help="printer id (default: the first one)")
     test.add_argument("--kind", default="standard", choices=["standard", "features", "minimal"])
+
+    update = subparsers.add_parser("update", help="check for a new version and install it")
+    update.add_argument("--check", action="store_true", help="only check, do not install")
+    update.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation")
+    update.add_argument("--file", default=None, help="install from a local archive (offline)")
+    update.add_argument("--repo", default=None, help="GitHub repository (owner/name)")
+    update.add_argument(
+        "--rollback", action="store_true", help="restore the installation from before the last update"
+    )
+    update.add_argument("--list-backups", action="store_true", help="show available backups")
     return parser
 
 
@@ -75,6 +85,135 @@ def command_scan() -> int:
     return 0
 
 
+def _confirm(question: str) -> bool:
+    try:
+        answer = input(f"{question} [j/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return answer in ("j", "ja", "y", "yes")
+
+
+def command_update(args: Any, config: Any) -> int:  # noqa: C901 - a linear script reads better
+    """``bonbridge update`` - check, ask once, install with live output."""
+    import os
+    from pathlib import Path
+
+    from . import updater
+
+    settings = config.data.get("update") or {}
+    repository = args.repo or str(settings.get("repository") or "loe17/Bonbridge")
+
+    print(f"BonBridge {__version__}")
+    print("=" * 60)
+
+    if args.list_backups:
+        backups = updater.list_backups()
+        if not backups:
+            print("No backups yet.")
+            return 0
+        for entry in backups:
+            import time as _time
+
+            when = _time.strftime("%Y-%m-%d %H:%M", _time.localtime(entry["time"]))
+            print(f"  {entry['file']}   {entry['size'] // 1024} kB   {when}")
+        return 0
+
+    if args.rollback:
+        if os.geteuid() != 0:
+            print("Rollback needs root:  sudo bonbridge update --rollback", file=sys.stderr)
+            return 1
+        result = updater.rollback()
+        if not result.get("ok"):
+            print(f"Rollback not possible: {result.get('error')}", file=sys.stderr)
+            return 1
+        print(f"Restoring {result['backup']} (version {result.get('version') or '?'})")
+        if not (args.yes or _confirm("Wirklich zurueckrollen? / Really roll back?")):
+            print("Cancelled.")
+            return 1
+        return updater.run_foreground(Path(result["source"]), result.get("version") or "rollback")
+
+    # ---- offline: install from a file -------------------------------------
+    if args.file:
+        archive = Path(args.file).expanduser()
+        if not archive.is_file():
+            print(f"File not found: {archive}", file=sys.stderr)
+            return 1
+        if os.geteuid() != 0:
+            print("Installing needs root:  sudo bonbridge update --file ...", file=sys.stderr)
+            return 1
+        try:
+            source = updater.prepare_from_file(archive, echo=print)
+        except Exception as exc:  # noqa: BLE001
+            print(f"The archive cannot be used: {exc}", file=sys.stderr)
+            return 1
+        version = updater.archive_version(source) or "?"
+        print(f"Archive contains version {version} (installed: {__version__})")
+        if not updater.is_newer(version) and version != "?":
+            print("This is not newer than what is installed.")
+        if not (args.yes or _confirm(f"Version {version} jetzt installieren? / Install now?")):
+            print("Cancelled.")
+            return 1
+        updater.backup()
+        return updater.run_foreground(source, version)
+
+    # ---- online: check GitHub ---------------------------------------------
+    print(f"Checking https://github.com/{repository} ...")
+    info = updater.check(repository)
+    if not info.get("ok"):
+        print(f"Check failed: {info.get('error')}", file=sys.stderr)
+        print("Offline? Then download the release on another machine and use:")
+        print("  sudo bonbridge update --file bonbridge-x.y.z.tar.gz")
+        return 1
+
+    print(f"  installed: {info['current']}")
+    print(f"  available: {info['latest']}  ({info.get('name') or ''})")
+    if not info.get("update_available"):
+        print("\nAlready up to date.")
+        return 0
+
+    notes = (info.get("notes") or "").strip()
+    if notes:
+        print("\nRelease notes")
+        print("-" * 60)
+        for line in notes.splitlines()[:40]:
+            print(f"  {line}")
+        print("-" * 60)
+    if info.get("html_url"):
+        print(f"  {info['html_url']}")
+
+    if args.check:
+        return 0
+    if os.geteuid() != 0:
+        print("\nInstalling needs root:  sudo bonbridge update", file=sys.stderr)
+        return 1
+
+    print()
+    print("The update replaces the program files in /opt/bonbridge and restarts")
+    print("the service.  The configuration in /etc/bonbridge is kept.")
+    print("A backup of the current installation is written first.")
+    if not (args.yes or _confirm(f"Version {info['latest']} jetzt installieren? / Install now?")):
+        print("Cancelled.")
+        return 1
+
+    try:
+        source = updater.prepare_from_release(info, echo=print)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Download failed: {exc}", file=sys.stderr)
+        return 1
+    backup_file = updater.backup()
+    if backup_file:
+        print(f"Backup: {backup_file}")
+    code = updater.run_foreground(source, info["latest"])
+    updater.cleanup_work_dirs()
+    if code == 0:
+        print(f"\nBonBridge {info['latest']} installed.")
+    else:
+        print(f"\nUpdate failed (exit code {code}).", file=sys.stderr)
+        print("Roll back with:  sudo bonbridge update --rollback", file=sys.stderr)
+    return code
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -92,6 +231,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     config = Config.load(paths.CONFIG_FILE)
     level = args.log_level or str((config.data.get("logging") or {}).get("level") or "INFO")
+
+    if args.command == "update":
+        setup_logging(args.log_level or "WARNING", to_file=False)
+        return command_update(args, config)
+
     setup_logging(level, to_file=not args.no_log_file)
 
     app = BonBridge(config)

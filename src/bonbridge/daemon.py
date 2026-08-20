@@ -3,12 +3,29 @@
 from __future__ import annotations
 
 import logging
+import re
+import shutil
 import signal
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from . import __version__, caps, discovery, escpos, health, mdns, paths, receipts, sysinfo
+from . import (
+    __version__,
+    caps,
+    discovery,
+    escpos,
+    health,
+    images,
+    mdns,
+    netwatch,
+    paths,
+    receipts,
+    sysinfo,
+    updater,
+)
 from .config import Config
 from .jobs import Job, PrinterWorker
 from .raw_server import RawListenerSupervisor
@@ -76,8 +93,12 @@ class BonBridge:
         self._stop_event = threading.Event()
         self.mdns = mdns.MdnsAdvertiser()
         self.enpc: Optional[discovery.EnpcResponder] = None
+        self.netwatch: Optional[netwatch.NetworkWatcher] = None
+        self.update_checker: Optional[updater.UpdateChecker] = None
         self.web_server: Any = None
         self.version = __version__
+        #: Rasterised images waiting to be printed, keyed by preview token.
+        self._image_cache: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -88,6 +109,8 @@ class BonBridge:
         self._ensure_default_printer()
         self._start_printers()
         self._start_discovery()
+        self._start_netwatch()
+        self._start_update_checker()
         log.info("BonBridge %s ready with %s printer(s)", self.version, len(self.printers))
 
     def _ensure_default_printer(self) -> None:
@@ -163,9 +186,265 @@ class BonBridge:
             )
             self.enpc.start()
 
+    # ------------------------------------------------------------------
+    # Network watchdog
+    # ------------------------------------------------------------------
+
+    def _start_netwatch(self) -> None:
+        settings = self.config.data.get("network_watch") or {}
+        if not settings.get("enabled", True):
+            log.info("Network watchdog disabled")
+            return
+        self.netwatch = netwatch.NetworkWatcher(
+            self._on_network_change,
+            interval=float(settings.get("interval") or 60.0),
+            gateway_check=bool(settings.get("gateway_check", False)),
+            confirmations=int(settings.get("confirmations") or 2),
+        )
+        self.netwatch.start()
+
+    def _on_network_change(
+        self, online: bool, state: Dict[str, Any], offline_since: Optional[float]
+    ) -> None:
+        """Print the outage / recovery slip on every printer that wants it."""
+        settings = self.config.data.get("network_watch") or {}
+        if online and not settings.get("print_on_restore", True):
+            return
+        if not online and not settings.get("print_on_loss", True):
+            return
+
+        language = str((self.config.data.get("web") or {}).get("language") or "de")
+        german = language.lower().startswith("de")
+        outage = ""
+        if online and offline_since:
+            minutes = max(1, int((time.time() - offline_since) // 60))
+            outage = f"{minutes} min"
+
+        for runtime in list(self.printers.values()):
+            worker = runtime.worker
+            if not (runtime.config.get("options") or {}).get("network_alert", True):
+                continue
+            # "No printer attached" must stay silent: a spooled outage slip
+            # would surface days later out of context.
+            if not worker.connected:
+                log.info(
+                    "[%s] network %s - not printing, printer is not connected",
+                    runtime.printer_id,
+                    "restored" if online else "lost",
+                )
+                continue
+            capabilities = worker.capabilities or {}
+            recommendation = capabilities.get("recommendation") or {}
+            features = capabilities.get("features") or {}
+            payload = escpos.network_alert_page(
+                online=online,
+                printer_name=str(runtime.config.get("name") or runtime.printer_id),
+                reason=str(state.get("reason_de" if german else "reason_en") or ""),
+                columns=int(recommendation.get("columns") or 42),
+                codepage=str(recommendation.get("codepage") or "cp1252"),
+                language=language,
+                timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+                rows=netwatch.describe_links(state, german),
+                outage=outage,
+                address=str(state.get("ip") or "") if online else "",
+                do_cut=bool((features.get("cutter") or {}).get("effective", True)),
+            )
+            worker.submit_bytes(
+                payload,
+                source="netwatch",
+                label="network-online" if online else "network-offline",
+            )
+
+    def network_state(self) -> Dict[str, Any]:
+        settings = self.config.data.get("network_watch") or {}
+        if self.netwatch is None:
+            return {"enabled": False, "online": None, "interfaces": [], **dict(settings)}
+        return self.netwatch.snapshot_dict()
+
+    def check_network(self) -> Dict[str, Any]:
+        """Run one check on demand (button in the web interface)."""
+        if self.netwatch is None:
+            return {"ok": False, "error": "network watchdog is disabled"}
+        self.netwatch.check_once()
+        return {"ok": True, "network": self.netwatch.snapshot_dict()}
+
+    def test_network_alert(self, printer_id: str, online: bool = False) -> Dict[str, Any]:
+        """Print the outage slip on demand so its wording can be checked."""
+        runtime = self.printers.get(printer_id)
+        if runtime is None:
+            return {"ok": False, "error": f"unknown printer '{printer_id}'"}
+        state = self.network_state()
+        if not state.get("interfaces"):
+            state = netwatch.snapshot(False)
+        language = str((self.config.data.get("web") or {}).get("language") or "de")
+        german = language.lower().startswith("de")
+        capabilities = runtime.worker.capabilities or {}
+        recommendation = capabilities.get("recommendation") or {}
+        features = capabilities.get("features") or {}
+        payload = escpos.network_alert_page(
+            online=online,
+            printer_name=str(runtime.config.get("name") or printer_id),
+            reason=str(state.get("reason_de" if german else "reason_en") or ""),
+            columns=int(recommendation.get("columns") or 42),
+            codepage=str(recommendation.get("codepage") or "cp1252"),
+            language=language,
+            timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+            rows=netwatch.describe_links(state, german),
+            address=str(state.get("ip") or "") if online else "",
+            do_cut=bool((features.get("cutter") or {}).get("effective", True)),
+        )
+        runtime.worker.submit_bytes(payload, source="web-ui", label="network-test")
+        return {"ok": True, "queued": True, "bytes": len(payload)}
+
+    # ------------------------------------------------------------------
+    # Software updates
+    # ------------------------------------------------------------------
+
+    @property
+    def update_settings(self) -> Dict[str, Any]:
+        return self.config.data.get("update") or {}
+
+    def _start_update_checker(self) -> None:
+        settings = self.update_settings
+        if not settings.get("check_on_start", True):
+            return
+        self.update_checker = updater.UpdateChecker(
+            str(settings.get("repository") or "loe17/Bonbridge"),
+            float(settings.get("check_interval_hours") or 24.0),
+        )
+        self.update_checker.start()
+
+    def update_state(self) -> Dict[str, Any]:
+        """What the web interface needs to show about updates."""
+        settings = self.update_settings
+        status = updater.read_status()
+        latest = dict(self.update_checker.result) if self.update_checker else {}
+        return {
+            "current": self.version,
+            "repository": str(settings.get("repository") or "loe17/Bonbridge"),
+            "allow_web": bool(settings.get("allow_web", True)),
+            "check_on_start": bool(settings.get("check_on_start", True)),
+            "latest": latest.get("latest") or "",
+            "update_available": bool(latest.get("update_available")),
+            "checked_at": latest.get("checked_at"),
+            "check_error": latest.get("error") or "",
+            "release": {
+                "name": latest.get("name") or "",
+                "notes": latest.get("notes") or "",
+                "html_url": latest.get("html_url") or "",
+                "published_at": latest.get("published_at") or "",
+            },
+            "status": status,
+            "backups": updater.list_backups(),
+            "systemd": updater.systemd_available(),
+        }
+
+    def check_update(self) -> Dict[str, Any]:
+        settings = self.update_settings
+        repository = str(settings.get("repository") or "loe17/Bonbridge")
+        if self.update_checker is None:
+            self.update_checker = updater.UpdateChecker(
+                repository, float(settings.get("check_interval_hours") or 24.0)
+            )
+        result = self.update_checker.check_now()
+        return {"ok": bool(result.get("ok")), "check": result, "update": self.update_state()}
+
+    def _require_web_updates(self) -> None:
+        if not self.update_settings.get("allow_web", True):
+            raise PermissionError(
+                "Updates ueber die Weboberflaeche sind abgeschaltet "
+                "(System -> Updates). Auf der Konsole: sudo bonbridge update"
+            )
+
+    def start_update(self, source: str = "online", filename: str = "") -> Dict[str, Any]:
+        """Kick off an installation in the background.  Web interface entry."""
+        self._require_web_updates()
+        status = updater.read_status()
+        if status.get("running"):
+            return {"ok": False, "error": "an update is already running"}
+        try:
+            if source == "file":
+                archive = paths.UPDATE_DIR / "uploads" / filename
+                if not archive.is_file():
+                    return {"ok": False, "error": f"no uploaded file '{filename}'"}
+                root = updater.prepare_from_file(archive)
+            else:
+                info = (self.update_checker.result if self.update_checker else {}) or {}
+                if not info.get("tag"):
+                    info = updater.check(str(self.update_settings.get("repository") or ""))
+                if not info.get("ok"):
+                    return {"ok": False, "error": info.get("error") or "no release found"}
+                root = updater.prepare_from_release(info)
+            version = updater.archive_version(root) or "?"
+        except Exception as exc:  # noqa: BLE001 - reported to the user verbatim
+            log.warning("Update preparation failed: %s", exc)
+            updater.write_status(running=False, phase="failed", ok=False, error=str(exc))
+            return {"ok": False, "error": str(exc)}
+        # Back up before touching anything.  An update that breaks the bridge
+        # during service has to be undoable with one command.
+        saved = None
+        try:
+            saved = updater.backup()
+            if saved:
+                updater.append_log(f"==> backup written to {saved}")
+        except Exception as exc:  # noqa: BLE001 - never block the update on this
+            log.warning("Backup before the update failed: %s", exc)
+            updater.append_log(f"!! backup failed: {exc}")
+        updater.cleanup_work_dirs()
+        result = updater.start_detached(root, version)
+        result["source"] = source
+        result["backup"] = str(saved) if saved else ""
+        return result
+
+    def store_upload(self, filename: str, data: bytes) -> Dict[str, Any]:
+        """Accept an uploaded release archive and check that it is one."""
+        self._require_web_updates()
+        if len(data) > updater.MAX_ARCHIVE_BYTES:
+            return {"ok": False, "error": "file is too large"}
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", filename or "upload.tar.gz")[:80]
+        target_dir = paths.UPDATE_DIR / "uploads"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / safe
+        target.write_bytes(data)
+        # Unpack once immediately: an unusable file should be rejected while
+        # the user is still looking at the upload dialog, not later.
+        probe = Path(tempfile.mkdtemp(prefix="bonbridge-probe-", dir=str(paths.UPDATE_DIR)))
+        try:
+            root = updater.extract(target, probe)
+            version = updater.archive_version(root)
+        except Exception as exc:  # noqa: BLE001
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            return {"ok": False, "error": str(exc)}
+        finally:
+            shutil.rmtree(probe, ignore_errors=True)
+        return {
+            "ok": True,
+            "file": safe,
+            "bytes": len(data),
+            "version": version,
+            "newer": updater.is_newer(version, self.version),
+        }
+
+    def update_log(self, lines: int = 200) -> Dict[str, Any]:
+        return {
+            "ok": True,
+            "status": updater.read_status(),
+            "log": updater.tail_log(lines),
+            "version": self.version,
+        }
+
     def stop(self) -> None:
         log.info("Shutting down")
         self._stop_event.set()
+        if self.netwatch is not None:
+            self.netwatch.stop()
+            self.netwatch = None
+        if self.update_checker is not None:
+            self.update_checker.stop()
+            self.update_checker = None
         with self._lock:
             for runtime in self.printers.values():
                 runtime.stop()
@@ -225,6 +504,8 @@ class BonBridge:
             "overall_status": health_report["level"],
             "transports": runtime_report(),
             "discovery": self.discovery_snapshot(),
+            "network": self.network_state(),
+            "update": self.update_state(),
             "health": health_report,
             "uptime": time.time() - self.started_at,
         }
@@ -628,6 +909,89 @@ class BonBridge:
             runtime.worker.submit_bytes(payload, source="web-ui", label="composed receipt")
             result["printed"] = True
         return result
+
+    # ------------------------------------------------------------------
+    # Printing images
+    # ------------------------------------------------------------------
+
+    def prepare_image(
+        self, printer_id: str, data: bytes, options: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Rasterise an uploaded image and return the exact preview bitmap."""
+        runtime = self.printers.get(printer_id)
+        if runtime is None:
+            return {"ok": False, "error": f"unknown printer '{printer_id}'"}
+        kind, detail = images.sniff(data)
+        if kind == "pdf":
+            return {
+                "ok": False,
+                "error": (
+                    "PDF wird nicht unterstuetzt - bitte vorher als PNG exportieren. / "
+                    "PDF is not supported - please export it as a PNG first."
+                ),
+            }
+        if not images.HAVE_PIL:
+            return {"ok": False, "error": images.availability()["hint_en"]}
+
+        capabilities = runtime.worker.capabilities or {}
+        dots = images.dots_for_profile(capabilities)
+        try:
+            result = images.rasterise(
+                data,
+                dots=dots,
+                scale_percent=int(options.get("scale") or 100),
+                dither=bool(options.get("dither", True)),
+                threshold=int(options.get("threshold") or 128),
+                invert=bool(options.get("invert", False)),
+                align=str(options.get("align") or "center"),
+            )
+        except Exception as exc:  # noqa: BLE001 - user-supplied file
+            return {"ok": False, "error": str(exc)}
+
+        features = capabilities.get("features") or {}
+        payload = bytearray(escpos.INIT)
+        payload += result["escpos"]
+        payload += escpos.feed(int(options.get("feed") or 1))
+        if options.get("cut", True):
+            if (features.get("cutter") or {}).get("effective", True):
+                payload += escpos.cut("partial", feed_lines=4)
+            else:
+                payload += escpos.feed(4)
+                result["notes"].append("cutter_unsupported")
+
+        token = f"{printer_id}:{int(time.time() * 1000)}"
+        with self._lock:
+            self._image_cache[token] = {
+                "payload": bytes(payload),
+                "printer_id": printer_id,
+                "created": time.time(),
+            }
+            # Keep the cache tiny: this holds raw bitmaps.
+            for key in sorted(self._image_cache)[:-3]:
+                self._image_cache.pop(key, None)
+
+        return {
+            "ok": True,
+            "token": token,
+            "preview_png": result["preview_png"],
+            "width": result["width"],
+            "height": result["height"],
+            "dots": dots,
+            "bytes": len(payload),
+            "format": detail or result["format"],
+            "notes": result["notes"],
+        }
+
+    def print_image(self, printer_id: str, token: str) -> Dict[str, Any]:
+        runtime = self.printers.get(printer_id)
+        if runtime is None:
+            return {"ok": False, "error": f"unknown printer '{printer_id}'"}
+        with self._lock:
+            entry = self._image_cache.get(token)
+        if not entry or entry["printer_id"] != printer_id:
+            return {"ok": False, "error": "preview expired - please upload the image again"}
+        runtime.worker.submit_bytes(entry["payload"], source="web-ui", label="image")
+        return {"ok": True, "queued": True, "bytes": len(entry["payload"])}
 
     def discovery_snapshot(self) -> Dict[str, Any]:
         settings = self.config.data.get("discovery") or {}

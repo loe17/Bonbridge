@@ -244,6 +244,23 @@ class UsbTransport(BaseTransport):
                 return
             device = self._find_device()
 
+            # Read the descriptor strings *before* the interface is claimed.
+            # Afterwards a second control transfer on this device frequently
+            # fails, which used to leave the manufacturer/product strings empty
+            # - and without them the model cannot be identified, so every
+            # printer ended up on the generic profile despite printing fine.
+            for key, index in (
+                ("manufacturer", device.iManufacturer),
+                ("product", device.iProduct),
+                ("serial", device.iSerialNumber),
+            ):
+                if not self.settings.get(key):
+                    value = _string_safe(device, index)
+                    if value:
+                        self.settings[key] = value
+            self.settings.setdefault("vendor_id", device.idVendor)
+            self.settings.setdefault("product_id", device.idProduct)
+
             # Hand the device over from the kernel's usblp driver to us.
             try:
                 for configuration in device:

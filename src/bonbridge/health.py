@@ -172,10 +172,53 @@ def throttle_checks() -> List[Dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 
+def network_check(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Turn the network watchdog's verdict into a health check."""
+    if not state or state.get("online") is None:
+        return []
+    online = bool(state.get("online"))
+    interfaces = ", ".join(
+        f"{link.get('name')}: " + (", ".join(link.get("addresses") or []) or "-")
+        for link in (state.get("interfaces") or [])
+    )
+    if online:
+        return [
+            _check(
+                "network",
+                "ok",
+                "Netzwerkverbindung vorhanden",
+                "Network connection present",
+                interfaces,
+                interfaces,
+                value=state.get("ip"),
+            )
+        ]
+    return [
+        _check(
+            "network",
+            "error",
+            "Keine Netzwerkverbindung",
+            "No network connection",
+            (state.get("reason_de") or "")
+            + " - das Kassensystem kann dieses Geraet gerade nicht erreichen. "
+            + interfaces,
+            (state.get("reason_en") or "")
+            + " - the POS application cannot reach this device right now. "
+            + interfaces,
+            value=state.get("reason"),
+        )
+    ]
+
+
 def device_checks(app: Any = None) -> List[Dict[str, Any]]:
     """Everything that is about the box itself, not about a printer."""
     checks: List[Dict[str, Any]] = []
     checks.extend(throttle_checks())
+    if app is not None and hasattr(app, "network_state"):
+        try:
+            checks.extend(network_check(app.network_state()))
+        except Exception as exc:  # noqa: BLE001
+            log.debug("network check unavailable: %s", exc)
 
     temperature = sysinfo.cpu_temperature()
     if temperature is not None:
@@ -306,6 +349,61 @@ def device_checks(app: Any = None) -> List[Dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 
+def profile_check(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Say something when a printer runs on the generic fallback profile.
+
+    Printing still works on the fallback - that is the point of it - but the
+    line width, font and feature list are then guesses.  Silently guessing is
+    exactly what makes a user think nothing is wrong.
+    """
+    capabilities = snapshot.get("capabilities") or {}
+    identity = snapshot.get("identity") or {}
+    profile_id = str(capabilities.get("profile_id") or "")
+    reason = str(identity.get("profile_reason") or "")
+    if not profile_id.startswith("generic"):
+        return [
+            _check(
+                "profile",
+                "ok",
+                f"Modell erkannt: {capabilities.get('profile_name') or profile_id}",
+                f"Model detected: {capabilities.get('profile_name') or profile_id}",
+                reason,
+                reason,
+                value=profile_id,
+            )
+        ]
+    strings = ", ".join(
+        str(value)
+        for value in (
+            identity.get("manufacturer"),
+            identity.get("product"),
+            identity.get("ieee1284_id"),
+        )
+        if value
+    )
+    return [
+        _check(
+            "profile",
+            "warn",
+            "Kein Modell erkannt - Sammelprofil aktiv",
+            "No model detected - running on the generic profile",
+            "Der Drucker druckt, aber Zeilenbreite, Schriftart und Funktionsliste sind "
+            "geraten. Gelesene Kennungen: "
+            + (strings or "keine")
+            + ". Abhilfe: Reiter 'Drucker' -> 'Profil' das Modell von Hand auswählen, "
+            "oder 'Neu erkennen' drücken. Bei USB hilft oft auch, die Anschlussart "
+            "auf 'usb' (libusb) statt 'usblp' zu stellen.",
+            "The printer works, but line width, font and feature list are guesses. "
+            "Identifiers read: "
+            + (strings or "none")
+            + ". Fix: pick the model by hand under 'Printers' -> 'Profile', or press "
+            "'Re-detect'. On USB, switching the transport to 'usb' (libusb) instead of "
+            "'usblp' often helps.",
+            value=profile_id,
+        )
+    ]
+
+
 def printer_checks(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Turn a printer snapshot into explained checks."""
     from . import escpos
@@ -336,6 +434,7 @@ def printer_checks(snapshot: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "",
             )
         )
+        checks.extend(profile_check(snapshot))
     else:
         checks.append(
             _check(

@@ -170,6 +170,12 @@ What it is for: test receipts without a POS system, labels, handover notes,
 end-of-day notes - and above all for checking line width and character set
 before configuring the POS application.
 
+### Printing an image
+
+The **Text | Image** switch prints PNG, JPG, BMP, GIF and WebP files. The
+preview shows the actual dot pattern, not an approximation. PDF is not
+supported. Details in [10-updates.md](10-updates.md).
+
 ## Diagnostics
 
 * **Recent print jobs** - number, source (IP of the POS device), size,
@@ -205,7 +211,19 @@ CUPS, Windows, macOS and the command line.
 * Log search requests - lets you verify whether the POS app searches at all
 * System information: model, OS, kernel, architecture, Python, uptime, free
   disk space
+* **Network watchdog** - state of every interface, check interval and whether a
+  notice is printed on an outage (see [10-updates.md](10-updates.md))
+* **Updates** - installed and available version, installation with console
+  output, file upload for devices without internet, backups
+  (see [10-updates.md](10-updates.md))
 * Links to the documentation in the selected language
+
+### Collapsed sections stay collapsed
+
+Expanded or collapsed blocks (individual checks, hexdumps, command output) stay
+the way you left them - across the automatic refresh every five seconds and
+across a page reload. The automatic refresh also pauses while a field holds
+unsaved changes, because otherwise it would overwrite them.
 
 ## REST API
 
@@ -236,6 +254,17 @@ can use it too.
 | POST | `/api/printers/<id>/compose` | Build a receipt: `{"spec": …, "print": false}` returns the preview |
 | POST | `/api/printers/<id>/drawer-check` | Active cash drawer test |
 | POST | `/api/printers/<id>/startup-report` | Print the status slip again |
+| GET | `/api/network` | State of the network connection |
+| POST | `/api/network/check` | Check the network right now |
+| POST | `/api/printers/<id>/network-test` | Print the notice slip as a test |
+| GET | `/api/update` | Update state (installed/available/backups) |
+| POST | `/api/update/check` | Ask GitHub |
+| POST | `/api/update/install` | `{"source": "online"}` or `{"source": "file", "file": "..."}` |
+| POST | `/api/update/upload` | Upload an archive (raw file body, `?name=`) |
+| GET | `/api/update/log` | Console output of the running update |
+| GET | `/api/image/support` | Is image printing available? |
+| POST | `/api/printers/<id>/image` | Upload an image, returns preview + token |
+| POST | `/api/printers/<id>/image/print` | `{"token": "..."}` prints it |
 | GET | `/docs`, `/docs/en/<file>.md` | Documentation as HTML |
 
 Example:

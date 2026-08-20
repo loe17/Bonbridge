@@ -46,6 +46,7 @@ const I18N = {
 
     'op.startup': 'Statusbon beim Start drucken',
     'op.paperlow': 'Warnung drucken, wenn das Papier zur Neige geht',
+    'op.netalert': 'Hinweis drucken, wenn das Netzwerk ausfällt',
     'op.cut': 'Nach jedem Auftrag schneiden',
     'op.drawer': 'Nach jedem Auftrag Kassenlade öffnen',
     'op.reset': 'Vor jedem Auftrag zurücksetzen (ESC @)',
@@ -101,6 +102,51 @@ const I18N = {
     'sy.label': 'Gerätebezeichnung', 'sy.language': 'Sprache der Oberfläche',
     'sy.openDocs': 'Dokumentation öffnen',
 
+    'nw.title': 'Netzwerküberwachung',
+    'nw.explain': 'BonBridge prüft regelmäßig, ob dieses Gerät überhaupt im Netz ist. Fällt die Verbindung aus, druckt der Drucker einen Hinweiszettel — er hängt ja an USB und funktioniert weiter. Das erspart die Fehlersuche am falschen Ende.',
+    'nw.online': 'Netzwerk in Ordnung', 'nw.offline': 'Keine Netzwerkverbindung',
+    'nw.unknown': 'noch nicht geprüft',
+    'nw.noCarrier': 'kein Signal', 'nw.noAddress': 'verbunden, keine IP',
+    'nw.enabled': 'Netzwerküberwachung aktiv',
+    'nw.onLoss': 'Bon drucken, wenn die Verbindung ausfällt',
+    'nw.onRestore': 'Bon drucken, wenn die Verbindung zurückkommt',
+    'nw.gateway': 'Zusätzlich das Gateway anpingen',
+    'nw.interval': 'Prüfintervall (Sekunden)',
+    'nw.confirmations': 'Bestätigungen vor der Meldung',
+    'nw.perPrinterHint': 'Welcher Drucker den Hinweis ausdruckt, stellst du je Drucker unter „Drucker → Optionen“ ein.',
+    'nw.checkNow': 'Jetzt prüfen', 'nw.testSlip': 'Hinweiszettel testen',
+
+    'up.title': 'Updates', 'up.installed': 'Installiert', 'up.latest': 'Verfügbar',
+    'up.checkedAt': 'Zuletzt geprüft', 'up.repo': 'Quelle',
+    'up.available': 'Update verfügbar', 'up.current': 'Aktuell — kein Update nötig',
+    'up.notChecked': 'Noch nicht geprüft',
+    'up.check': 'Auf Updates prüfen', 'up.checking': 'Suche nach Updates …',
+    'up.install': 'Update installieren', 'up.notes': 'Änderungen in dieser Version',
+    'up.confirm': 'Version %s jetzt installieren?\n\nDie Programmdateien werden ersetzt und der Dienst neu gestartet. Die Konfiguration bleibt erhalten, vorher wird ein Backup angelegt. Während des Updates wird nicht gedruckt.',
+    'up.confirmFile': 'Hochgeladene Version %s jetzt installieren?\n\nDie Programmdateien werden ersetzt und der Dienst neu gestartet.',
+    'up.started': 'Update gestartet — Ausgabe unten',
+    'up.done': 'Update abgeschlossen', 'up.failed': 'Update fehlgeschlagen',
+    'up.restarting': '… Dienst startet neu, die Seite lädt gleich neu …',
+    'up.console': 'Konsolenausgabe', 'up.noOutput': '(noch keine Ausgabe)',
+    'up.phase': 'Status',
+    'up.offline': 'Update ohne Internet', 
+    'up.offlineHelp': 'Wenn dieses Gerät nicht ins Internet kommt: Release auf einem anderen Rechner von GitHub herunterladen (.tar.gz oder .zip), hier hochladen und installieren.',
+    'up.upload': 'Datei hochladen und installieren', 'up.pickFile': 'Bitte zuerst eine Datei auswählen',
+    'up.allowWeb': 'Updates über die Weboberfläche erlauben',
+    'up.checkOnStart': 'Beim Start und täglich auf Updates prüfen',
+    'up.webDisabled': 'Updates über die Weboberfläche sind abgeschaltet. Auf der Konsole: sudo bonbridge update',
+    'up.backups': 'Backups', 
+    'up.backupHelp': 'Zurückrollen auf der Konsole:  sudo bonbridge update --rollback',
+
+    'pt.modeText': 'Text', 'pt.modeImage': 'Bild',
+    'pt.file': 'Bilddatei', 
+    'pt.fileHelp': 'PNG, JPG, BMP, GIF oder WebP. PDF wird nicht unterstützt — bitte vorher als PNG exportieren. Die Vorschau zeigt exakt die Punkte, die gedruckt werden.',
+    'pt.scale': 'Breite (% der Druckbreite)', 'pt.threshold': 'Schwellwert (1–254)',
+    'pt.dither': 'Graustufen simulieren (Rasterung)', 'pt.invert': 'Invertieren (Negativ)',
+    'pt.noImage': 'Noch kein Bild ausgewählt', 'pt.dots': 'Punkte',
+    'pt.noteTransparent': 'Transparente Flächen wurden auf Weiß gelegt.',
+    'pt.noteTruncated': 'Das Bild war zu hoch und wurde unten abgeschnitten.',
+
     'common.yes': 'ja', 'common.no': 'nein', 'common.saved': 'Gespeichert',
     'common.error': 'Fehler', 'common.queued': 'An den Drucker geschickt',
     'common.loading': 'Wird geladen …', 'common.unknown': 'unbekannt'
@@ -145,6 +191,7 @@ const I18N = {
 
     'op.startup': 'Print a status slip on start-up',
     'op.paperlow': 'Print a warning when the paper runs low',
+    'op.netalert': 'Print a notice when the network fails',
     'op.cut': 'Cut after every job',
     'op.drawer': 'Open the cash drawer after every job',
     'op.reset': 'Reset (ESC @) before every job',
@@ -200,6 +247,51 @@ const I18N = {
     'sy.label': 'Device label', 'sy.language': 'Interface language',
     'sy.openDocs': 'Open the documentation',
 
+    'nw.title': 'Network watchdog',
+    'nw.explain': 'BonBridge regularly checks whether this device is on the network at all. If the connection drops, the printer prints a notice - it is attached over USB and keeps working. That saves troubleshooting at the wrong end.',
+    'nw.online': 'Network is fine', 'nw.offline': 'No network connection',
+    'nw.unknown': 'not checked yet',
+    'nw.noCarrier': 'no link', 'nw.noAddress': 'link up, no IP',
+    'nw.enabled': 'Network watchdog active',
+    'nw.onLoss': 'Print a slip when the connection drops',
+    'nw.onRestore': 'Print a slip when the connection returns',
+    'nw.gateway': 'Also ping the gateway',
+    'nw.interval': 'Check interval (seconds)',
+    'nw.confirmations': 'Confirmations before reporting',
+    'nw.perPrinterHint': 'Which printer prints the notice is set per printer under "Printers -> Options".',
+    'nw.checkNow': 'Check now', 'nw.testSlip': 'Test the notice slip',
+
+    'up.title': 'Updates', 'up.installed': 'Installed', 'up.latest': 'Available',
+    'up.checkedAt': 'Last checked', 'up.repo': 'Source',
+    'up.available': 'Update available', 'up.current': 'Up to date - nothing to do',
+    'up.notChecked': 'Not checked yet',
+    'up.check': 'Check for updates', 'up.checking': 'Looking for updates ...',
+    'up.install': 'Install the update', 'up.notes': 'What changed in this version',
+    'up.confirm': 'Install version %s now?\n\nThe program files are replaced and the service is restarted. The configuration is kept and a backup is written first. Nothing is printed while the update runs.',
+    'up.confirmFile': 'Install the uploaded version %s now?\n\nThe program files are replaced and the service is restarted.',
+    'up.started': 'Update started - output below',
+    'up.done': 'Update finished', 'up.failed': 'Update failed',
+    'up.restarting': '... the service is restarting, the page will reload shortly ...',
+    'up.console': 'Console output', 'up.noOutput': '(no output yet)',
+    'up.phase': 'State',
+    'up.offline': 'Update without internet',
+    'up.offlineHelp': 'If this device has no internet access: download the release from GitHub on another machine (.tar.gz or .zip), upload it here and install it.',
+    'up.upload': 'Upload the file and install', 'up.pickFile': 'Please choose a file first',
+    'up.allowWeb': 'Allow updates through the web interface',
+    'up.checkOnStart': 'Check for updates at start-up and daily',
+    'up.webDisabled': 'Updates through the web interface are switched off. On the console: sudo bonbridge update',
+    'up.backups': 'Backups',
+    'up.backupHelp': 'Roll back on the console:  sudo bonbridge update --rollback',
+
+    'pt.modeText': 'Text', 'pt.modeImage': 'Image',
+    'pt.file': 'Image file',
+    'pt.fileHelp': 'PNG, JPG, BMP, GIF or WebP. PDF is not supported - please export it as a PNG first. The preview shows exactly the dots that will be printed.',
+    'pt.scale': 'Width (% of the print width)', 'pt.threshold': 'Threshold (1-254)',
+    'pt.dither': 'Simulate grey levels (dithering)', 'pt.invert': 'Invert (negative)',
+    'pt.noImage': 'No image chosen yet', 'pt.dots': 'dots',
+    'pt.noteTransparent': 'Transparent areas were placed on white.',
+    'pt.noteTruncated': 'The image was too tall and was cut off at the bottom.',
+
     'common.yes': 'yes', 'common.no': 'no', 'common.saved': 'Saved',
     'common.error': 'Error', 'common.queued': 'Sent to the printer',
     'common.loading': 'Loading …', 'common.unknown': 'unknown'
@@ -242,7 +334,20 @@ const HELP = {
     'pt.qr': 'Wird als QR-Code unten auf den Bon gedruckt, z. B. eine Internetadresse. Leer lassen, wenn kein QR-Code gewünscht ist.',
     'pt.cut': 'Schneidet das Papier nach dem Bon ab, falls der Drucker einen Schneider hat.',
     'pt.drawer': 'Öffnet nach dem Druck die Kassenlade, falls eine angeschlossen ist.',
-    'di.raw': 'Sendet Bytes unverändert an den Drucker. Text wird als Text gesendet; reine Hex-Zeichen werden als Bytes interpretiert, z. B. "1B 40" für einen Reset. Nur benutzen, wenn du weißt was du tust.'
+    'di.raw': 'Sendet Bytes unverändert an den Drucker. Text wird als Text gesendet; reine Hex-Zeichen werden als Bytes interpretiert, z. B. "1B 40" für einen Reset. Nur benutzen, wenn du weißt was du tust.',
+    'op.netalert': 'Druckt auf DIESEM Drucker einen Hinweiszettel, wenn das Gerät seine Netzwerkverbindung verliert oder wiederbekommt. Sinnvoll, weil das Kassensystem dann nicht mehr drucken kann und sonst niemand erfährt, warum. Ist gerade kein Drucker verbunden, wird nichts gedruckt und auch nichts nachgeholt.',
+    'nw.interval': 'Wie oft der Netzwerkzustand geprüft wird. 60 Sekunden ist ein guter Kompromiss: schnell genug, um einen Ausfall früh zu bemerken, sparsam genug für einen kleinen Raspberry Pi. Minimum 10 Sekunden.',
+    'nw.confirmations': 'Wie oft der neue Zustand hintereinander bestätigt werden muss, bevor gedruckt wird. Bei 2 führt ein kurzer WLAN-Wechsel nicht zu einem Zettel. Bei 1 wird sofort gemeldet.',
+    'nw.enabled': 'Schaltet die gesamte Überwachung ein oder aus. Ausgeschaltet wird der Netzwerkzustand weder geprüft noch angezeigt.',
+    'nw.onLoss': 'Der Zettel beim Ausfall ist der eigentliche Zweck: Er erklärt am Drucker, warum das Kassensystem nichts mehr sendet.',
+    'nw.onRestore': 'Beim Wiederverbinden wird ein zweiter Zettel gedruckt — mit der aktuellen IP-Adresse, die sich nach einem Router-Neustart geändert haben kann.',
+    'nw.gateway': 'Prüft zusätzlich, ob der Router antwortet. Erkennt den Fall "verbunden, aber Router tot". Kostet bei jeder Prüfung einen Ping-Prozess, deshalb standardmäßig aus.',
+    'up.allowWeb': 'Erlaubt Installation von Updates über diese Weboberfläche. Die Oberfläche hat kein Passwort — wer im selben Netz ist, könnte also Software auf dem Gerät installieren. Ausgeschaltet geht ein Update nur noch über SSH mit "sudo bonbridge update".',
+    'up.checkOnStart': 'Fragt beim Start und danach einmal täglich bei GitHub nach, ob es eine neuere Version gibt. Es wird nie automatisch installiert.',
+    'pt.scale': 'Wie breit das Bild gedruckt wird, in Prozent der Druckbreite. 100 % nutzt die volle Breite; kleinere Werte lassen links und rechts Rand.',
+    'pt.threshold': 'Ab welcher Helligkeit ein Punkt schwarz wird — nur wirksam, wenn die Rasterung aus ist. Kleiner Wert = weniger Schwarz.',
+    'pt.dither': 'Simuliert Graustufen durch ein feines Punktmuster. Für Fotos fast immer richtig. Für Logos und Strichzeichnungen ist ein harter Schwellwert oft sauberer.',
+    'pt.invert': 'Tauscht Schwarz und Weiß. Nützlich für helle Schrift auf dunklem Grund, die sonst als schwarzer Block herauskäme.'
   },
   en: {
     'pr.name': 'Free-text name such as "Kitchen" or "Bar". It appears on test prints, in the support report and in the mDNS announcement. It has no effect on behaviour.',
@@ -278,7 +383,20 @@ const HELP = {
     'pt.qr': 'Printed as a QR code at the bottom, e.g. a web address. Leave empty for no QR code.',
     'pt.cut': 'Cuts the paper after the receipt, if the printer has a cutter.',
     'pt.drawer': 'Opens the cash drawer after printing, if one is connected.',
-    'di.raw': 'Sends bytes to the printer unchanged. Text is sent as text; pure hex characters are interpreted as bytes, e.g. "1B 40" for a reset. Only use this if you know what you are doing.'
+    'di.raw': 'Sends bytes to the printer unchanged. Text is sent as text; pure hex characters are interpreted as bytes, e.g. "1B 40" for a reset. Only use this if you know what you are doing.',
+    'op.netalert': 'Prints a notice on THIS printer when the device loses or regains its network connection. Useful because the POS application cannot print then, and otherwise nobody learns why. If no printer is connected at that moment nothing is printed and nothing is caught up later.',
+    'nw.interval': 'How often the network state is checked. 60 seconds is a good compromise: quick enough to notice an outage early, cheap enough for a small Raspberry Pi. Minimum is 10 seconds.',
+    'nw.confirmations': 'How many consecutive checks must agree before a slip is printed. At 2 a brief Wi-Fi roam does not produce one. At 1 it is reported immediately.',
+    'nw.enabled': 'Switches the whole watchdog on or off. When off, the network state is neither checked nor displayed.',
+    'nw.onLoss': 'The outage slip is the actual point: it explains, at the printer, why the POS application stopped sending anything.',
+    'nw.onRestore': 'When the connection returns a second slip is printed - carrying the current IP address, which may have changed after a router restart.',
+    'nw.gateway': 'Additionally checks whether the router answers. Catches "connected but the router is dead". Costs one ping process per check, hence off by default.',
+    'up.allowWeb': 'Allows updates to be installed through this web interface. The interface has no password, so anyone on the same network could install software on the device. When off, updating is only possible over SSH with "sudo bonbridge update".',
+    'up.checkOnStart': 'Asks GitHub at start-up and once a day whether a newer version exists. Nothing is ever installed automatically.',
+    'pt.scale': 'How wide the image is printed, as a percentage of the print width. 100% uses the full width; smaller values leave a margin left and right.',
+    'pt.threshold': 'The brightness at which a dot turns black - only in effect when dithering is off. A lower value means less black.',
+    'pt.dither': 'Simulates grey levels with a fine dot pattern. Almost always right for photos. For logos and line art a hard threshold is often cleaner.',
+    'pt.invert': 'Swaps black and white. Useful for light text on a dark background, which would otherwise come out as a black block.'
   }
 };
 
@@ -363,14 +481,45 @@ function copyText(value) {
 }
 window.copyText = copyText;
 
+/* ------------------------------------------------------------------ */
+/* Remembering what the user opened or closed                          */
+/*                                                                     */
+/* The overview re-renders every five seconds.  Without this, every    */
+/* panel the user collapsed sprang open again on the next refresh.     */
+/* The choice is keyed per block, kept in localStorage and therefore   */
+/* also survives a page reload.                                        */
+/* ------------------------------------------------------------------ */
+
+let OPEN_STATE = {};
+try { OPEN_STATE = JSON.parse(localStorage.getItem('bb.open') || '{}') || {}; } catch (e) { OPEN_STATE = {}; }
+
+function isOpen(key, fallback) {
+  if (key && Object.prototype.hasOwnProperty.call(OPEN_STATE, key)) return !!OPEN_STATE[key];
+  return !!fallback;
+}
+function rememberOpen(key, open) {
+  if (!key) return;
+  OPEN_STATE[key] = !!open;
+  try { localStorage.setItem('bb.open', JSON.stringify(OPEN_STATE)); } catch (e) { /* private mode */ }
+}
+/** <details> that keeps its state.  `key` must be stable across renders. */
+function detailsOpen(key, fallback) {
+  return ' data-open-key="' + esc(key) + '"' + (isOpen(key, fallback) ? ' open' : '');
+}
+/** A collapsible block whose open/closed state is remembered. */
+function foldable(key, title, bodyHtml, defaultOpen) {
+  return '<details class="fold"' + detailsOpen(key, defaultOpen) + '><summary>' +
+    title + '</summary><div class="foldbody">' + bodyHtml + '</div></details>';
+}
+
 /** Collapsible list of health checks with title + explanation. */
-function checksBlock(entry, label) {
+function checksBlock(entry, label, key) {
   if (!entry || !(entry.checks || []).length) return '';
   const problems = entry.problems || [];
   const summary = problems.length
     ? problems.map((c) => esc(bi(c, 'title'))).join(' · ')
     : t('status.ok');
-  let html = '<details class="checks"' + (problems.length ? ' open' : '') + '>';
+  let html = '<details class="checks"' + detailsOpen(key || ('checks:' + (label || 'device')), problems.length > 0) + '>';
   html += '<summary>' + (label || t('ov.why')) + ' — <span class="muted">' + summary + '</span></summary>';
   entry.checks.forEach((c) => {
     html += '<div class="checkitem"><div class="t"><span class="dot ' + esc(c.level) + '"></span>' +
@@ -406,7 +555,7 @@ function renderOverview() {
     kv(esc(sys.model), esc(sys.os)) + kv('IP', esc(sys.primary_ip)) +
     kv('Uptime', fmtDuration(sys.uptime)) +
     (sys.cpu_temperature ? kv('CPU', sys.cpu_temperature.toFixed(1) + ' °C') : '') +
-    '</div>' + checksBlock(health.device) + '</div>';
+    '</div>' + checksBlock(health.device, null, 'ov.device') + '</div>';
 
   if (!data.printers.length) html += '<div class="card">' + t('ov.noPrinters') + '</div>';
 
@@ -431,7 +580,7 @@ function renderOverview() {
       kv(t('ov.listener'), (listener.listening ? '' : '<span class="dot error"></span>') +
          esc(listener.bind + ':' + listener.port) + (listener.error ? ' — ' + esc(listener.error) : '')) +
       (printer.last_error ? kv(t('ov.lastError'), '<span style="color:var(--err)">' + esc(printer.last_error) + '</span>') : '') +
-      '</div></div>' + checksBlock(ph) +
+      '</div></div>' + checksBlock(ph, null, 'ov.printer:' + printer.id) +
       '<div class="btnbar">' +
       '<button class="act primary" onclick="testPrint(\'' + esc(printer.id) + '\',\'standard\')">' + t('ov.testPrint') + '</button>' +
       '<button class="act" onclick="printStatusSlip(\'' + esc(printer.id) + '\')">' + t('ov.statusReport') + '</button>' +
@@ -559,6 +708,7 @@ function optionFields(options) {
   return '<div class="grid2"><div>' +
     checkbox('op.startup', 'options.startup_report', t('op.startup'), options.startup_report !== false) +
     checkbox('op.paperlow', 'options.paper_low_warning', t('op.paperlow'), !!options.paper_low_warning) +
+    checkbox('op.netalert', 'options.network_alert', t('op.netalert'), options.network_alert !== false) +
     checkbox('op.cut', 'options.cut_after_job', t('op.cut'), !!options.cut_after_job) +
     checkbox('op.drawer', 'options.open_drawer_after_job', t('op.drawer'), !!options.open_drawer_after_job) +
     checkbox('op.reset', 'options.reset_before_job', t('op.reset'), !!options.reset_before_job) +
@@ -742,13 +892,23 @@ function renderPrint() {
     ? STATE.printTarget : printers[0].id;
   STATE.printTarget = selected;
 
-  root.innerHTML =
-    '<div class="card"><h2>' + t('pt.title') + '</h2>' +
-    '<div class="row"><div>' +
-    lbl('pt.printer', t('pt.printer')) +
+  const mode = STATE.printMode === 'image' ? 'image' : 'text';
+  const printerSelect = lbl('pt.printer', t('pt.printer')) +
     '<select id="ptPrinter">' + printers.map((p) =>
       '<option value="' + esc(p.id) + '"' + (p.id === selected ? ' selected' : '') + '>' +
-      esc(p.name) + '</option>').join('') + '</select>' +
+      esc(p.name) + '</option>').join('') + '</select>';
+  const modeSwitch = '<div class="modeswitch">' +
+    '<button class="act' + (mode === 'text' ? ' primary' : '') + '" onclick="setPrintMode(\'text\')">' +
+    t('pt.modeText') + '</button>' +
+    '<button class="act' + (mode === 'image' ? ' primary' : '') + '" onclick="setPrintMode(\'image\')">' +
+    t('pt.modeImage') + '</button></div>';
+
+  if (mode === 'image') { renderPrintImage(root, printerSelect, modeSwitch); return; }
+
+  root.innerHTML =
+    '<div class="card"><h2>' + t('pt.title') + '</h2>' + modeSwitch +
+    '<div class="row"><div>' +
+    printerSelect +
     lbl('pt.heading', t('pt.heading')) + '<input id="ptTitle" title="' + esc(help('pt.heading')) + '">' +
     lbl('pt.body', t('pt.body')) + '<textarea id="ptBody" title="' + esc(help('pt.body')) + '"></textarea>' +
     '<div class="fieldhelp">' + esc(t('pt.bodyHelp')) + '</div>' +
@@ -888,6 +1048,166 @@ window.doPrint = doPrint; window.updatePreview = updatePreview;
 window.insertExample = insertExample; window.clearReceipt = clearReceipt;
 
 /* ------------------------------------------------------------------ */
+/* Printing an image                                                   */
+/*                                                                     */
+/* The preview is not a simulation: the device rasterises the file and */
+/* sends back exactly the bitmap it would print, so a logo that turns  */
+/* into a black block is visible before it costs paper.                */
+/* ------------------------------------------------------------------ */
+
+function setPrintMode(mode) {
+  STATE.printMode = mode;
+  renderPrint();
+}
+
+function renderPrintImage(root, printerSelect, modeSwitch) {
+  const options = STATE.imageOptions || (STATE.imageOptions = {
+    scale: 100, dither: true, threshold: 128, invert: false, cut: true, align: 'center'
+  });
+  const support = STATE.imageSupport;
+
+  let html = '<div class="card"><h2>' + t('pt.title') + '</h2>' + modeSwitch;
+  if (support && !support.available) {
+    html += '<p class="fieldhelp" style="color:var(--warn)">⚠ ' +
+      esc(LANG === 'de' ? support.hint_de : support.hint_en) + '</p>';
+  }
+  html += '<div class="row"><div>' + printerSelect +
+    lbl('pt.file', t('pt.file')) +
+    '<input type="file" id="ptFile" accept="image/*">' +
+    '<div class="fieldhelp">' + esc(t('pt.fileHelp')) + '</div>' +
+    '<div class="grid2" style="margin-top:.6rem">' +
+    '<div>' + lbl('pt.scale', t('pt.scale')) +
+    '<input type="number" id="ptScale" min="10" max="100" step="5" value="' + options.scale +
+    '" title="' + esc(help('pt.scale')) + '"></div>' +
+    '<div>' + lbl('pt.threshold', t('pt.threshold')) +
+    '<input type="number" id="ptThreshold" min="1" max="254" step="4" value="' + options.threshold +
+    '" title="' + esc(help('pt.threshold')) + '"' + (options.dither ? ' disabled' : '') + '></div>' +
+    '</div>' +
+    checkbox('pt.dither', 'ptDither', t('pt.dither'), options.dither).replace('data-f="ptDither"', 'id="ptDither"') +
+    checkbox('pt.invert', 'ptInvert', t('pt.invert'), options.invert).replace('data-f="ptInvert"', 'id="ptInvert"') +
+    checkbox('pt.cut', 'ptImgCut', t('pt.cut'), options.cut).replace('data-f="ptImgCut"', 'id="ptImgCut"') +
+    '<div class="btnbar">' +
+    '<button class="act primary" onclick="doPrintImage()" id="ptImgPrint">' + t('pt.print') + '</button>' +
+    '<button class="act" onclick="prepareImage()">' + t('pt.preview') + '</button>' +
+    '<button class="act" onclick="clearImage()">' + t('pt.clear') + '</button>' +
+    '</div></div>' +
+    '<div><label>' + t('pt.preview') + ' <span id="ptImgInfo" class="tag"></span></label>' +
+    '<div class="papershell"><div class="paper imagepaper" id="ptImgPaper">' +
+    '<span class="muted">' + esc(t('pt.noImage')) + '</span></div></div>' +
+    '<div id="ptImgNotes" class="fieldhelp"></div>' +
+    '</div></div></div>';
+  root.innerHTML = html;
+
+  document.getElementById('ptPrinter').addEventListener('change', (event) => {
+    STATE.printTarget = event.target.value;
+    if (STATE.imageFile) prepareImage();
+  });
+  document.getElementById('ptFile').addEventListener('change', (event) => {
+    STATE.imageFile = event.target.files && event.target.files[0];
+    STATE.imageToken = null;
+    if (STATE.imageFile) prepareImage();
+  });
+  ['ptScale', 'ptThreshold'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', collectImageOptions);
+  });
+  ['ptDither', 'ptInvert', 'ptImgCut'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', collectImageOptions);
+  });
+
+  if (STATE.imagePreview) showImagePreview(STATE.imagePreview);
+  if (!support) loadImageSupport();
+}
+
+async function loadImageSupport() {
+  try {
+    STATE.imageSupport = (await api('/api/image/support')).support;
+    if (STATE.printMode === 'image') renderPrint();
+  } catch (e) { /* the tab still works, only the hint is missing */ }
+}
+
+function collectImageOptions() {
+  const number = (id, fallback) => {
+    const value = parseInt(document.getElementById(id).value, 10);
+    return isNaN(value) ? fallback : value;
+  };
+  STATE.imageOptions = {
+    scale: Math.max(10, Math.min(100, number('ptScale', 100))),
+    threshold: Math.max(1, Math.min(254, number('ptThreshold', 128))),
+    dither: document.getElementById('ptDither').checked,
+    invert: document.getElementById('ptInvert').checked,
+    cut: document.getElementById('ptImgCut').checked,
+    align: 'center'
+  };
+  document.getElementById('ptThreshold').disabled = STATE.imageOptions.dither;
+  if (STATE.imageFile) prepareImage();
+}
+
+async function prepareImage() {
+  if (!STATE.imageFile) { toast(t('pt.noImage')); return; }
+  const options = STATE.imageOptions || {};
+  const query = '?scale=' + (options.scale || 100) +
+    '&threshold=' + (options.threshold || 128) +
+    '&dither=' + (options.dither === false ? '0' : '1') +
+    '&invert=' + (options.invert ? '1' : '0') +
+    '&cut=' + (options.cut === false ? '0' : '1');
+  const paper = document.getElementById('ptImgPaper');
+  if (paper) paper.innerHTML = '<span class="muted">' + esc(t('common.loading')) + '</span>';
+  try {
+    const response = await fetch(
+      '/api/printers/' + encodeURIComponent(STATE.printTarget) + '/image' + query,
+      { method: 'POST', body: STATE.imageFile,
+        headers: { 'Content-Type': 'application/octet-stream' } });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) throw new Error(result.error || ('HTTP ' + response.status));
+    STATE.imageToken = result.token;
+    STATE.imagePreview = result;
+    showImagePreview(result);
+  } catch (e) {
+    STATE.imageToken = null;
+    if (paper) paper.innerHTML = '<span style="color:var(--err)">' + esc(e.message) + '</span>';
+    toast(t('common.error') + ': ' + e.message, true);
+  }
+}
+
+function showImagePreview(result) {
+  const paper = document.getElementById('ptImgPaper');
+  if (!paper) return;
+  paper.innerHTML = '<img src="' + result.preview_png + '" alt="preview">' +
+    (result.cutmark === false ? '' : '<span class="pl cutmark">- - - - - ' + t('pv.cut') + ' - - - - -</span>');
+  const info = document.getElementById('ptImgInfo');
+  if (info) {
+    info.textContent = result.width + ' × ' + result.height + ' ' + t('pt.dots') +
+      ' · ' + fmtBytes(result.bytes) + (result.format ? ' · ' + result.format.toUpperCase() : '');
+  }
+  const noteMap = {
+    cutter_unsupported: t('pt.noteCutter'),
+    transparency_flattened: t('pt.noteTransparent'),
+    truncated: t('pt.noteTruncated')
+  };
+  const notes = (result.notes || []).map((n) => noteMap[n] || n);
+  const box = document.getElementById('ptImgNotes');
+  if (box) box.innerHTML = notes.map((n) => '⚠ ' + esc(n)).join('<br>');
+}
+
+async function doPrintImage() {
+  if (!STATE.imageToken) { await prepareImage(); }
+  if (!STATE.imageToken) return;
+  try {
+    await api('/api/printers/' + encodeURIComponent(STATE.printTarget) + '/image/print',
+      { method: 'POST', body: JSON.stringify({ token: STATE.imageToken }) });
+    toast(t('pt.printed'));
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+
+function clearImage() {
+  STATE.imageFile = null; STATE.imageToken = null; STATE.imagePreview = null;
+  renderPrint();
+}
+
+window.setPrintMode = setPrintMode; window.prepareImage = prepareImage;
+window.doPrintImage = doPrintImage; window.clearImage = clearImage;
+
+/* ------------------------------------------------------------------ */
 /* Diagnostics                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -906,9 +1226,9 @@ async function renderDiag() {
 
   const health = (STATE.overview || {}).health || {};
   html += '<div class="card"><h2>' + t('di.health') + '</h2>' +
-    checksBlock(health.device, LANG === 'de' ? 'Gerät' : 'Device');
+    checksBlock(health.device, LANG === 'de' ? 'Gerät' : 'Device', 'diag.device');
   Object.keys(health.printers || {}).forEach((printerId) => {
-    html += checksBlock(health.printers[printerId], printerId);
+    html += checksBlock(health.printers[printerId], printerId, 'diag.printer:' + printerId);
   });
   html += '</div>';
 
@@ -925,11 +1245,11 @@ async function renderDiag() {
     html += '<p class="muted">' + t('di.noProbes') + '</p>';
   } else {
     enpc.probes.forEach((probe) => {
-      html += '<div style="margin-bottom:.7rem"><div class="muted" style="font-size:.82rem">' +
-        fmtTime(probe.time) + ' — ' + esc(probe.peer) + ' — ' + probe.bytes + ' B — ' +
+      const head = fmtTime(probe.time) + ' — ' + esc(probe.peer) + ' — ' + probe.bytes + ' B — ' +
         (probe.answered ? t('di.answered') : '—') + (probe.magic ? ' — ' + esc(probe.magic) : '') +
-        (probe.function ? ' ' + esc(probe.function) : '') + '</div>' +
-        '<pre>' + esc(probe.hexdump) + '</pre></div>';
+        (probe.function ? ' ' + esc(probe.function) : '');
+      html += foldable('diag.probe:' + probe.time + ':' + probe.peer, head,
+                       '<pre>' + esc(probe.hexdump) + '</pre>', true);
     });
     html += '<div class="btnbar"><button class="act" onclick="clearProbes()">' + t('di.clearProbes') + '</button></div>';
   }
@@ -954,13 +1274,16 @@ async function renderDiag() {
       '<button class="act" style="flex:0 0 auto" onclick="sendRaw(\'' + esc(printer.id) + '\')">' + t('di.rawSend') + '</button></div>' +
       '<div class="btnbar"><button class="act" onclick="clearSpool(\'' + esc(printer.id) + '\')">' + t('di.clearSpool') +
       ' (' + printer.spooled + ')</button></div>' +
-      '<h3>Status</h3><pre>' + esc(JSON.stringify(printer.status || {}, null, 1)) + '</pre>' +
-      '<h3>Identity</h3><pre>' + esc(JSON.stringify(printer.identity || {}, null, 1)) + '</pre></div>';
+      foldable('diag.status:' + printer.id, 'Status',
+               '<pre>' + esc(JSON.stringify(printer.status || {}, null, 1)) + '</pre>', false) +
+      foldable('diag.identity:' + printer.id, 'Identity',
+               '<pre>' + esc(JSON.stringify(printer.identity || {}, null, 1)) + '</pre>', false) + '</div>';
   });
 
   html += '<div class="card"><h2>' + t('di.commands') + '</h2>';
   Object.keys(diag.commands).forEach((key) => {
-    html += '<h3>' + esc(key) + '</h3><pre>' + esc(diag.commands[key]) + '</pre>';
+    html += foldable('diag.cmd:' + key, esc(key),
+                     '<pre>' + esc(diag.commands[key]) + '</pre>', false);
   });
   html += '</div>';
   root.innerHTML = html;
@@ -1086,6 +1409,8 @@ async function renderSystem() {
     kv(LANG === 'de' ? 'Speicher frei' : 'Disk free', sys.disk ? fmtBytes(sys.disk.free) : '-') +
     '</div></div>' +
 
+    networkCard(config) + updateCard(config) +
+
     '<div class="card"><h2>' + t('sy.docs') + '</h2>' +
     '<p class="muted">' + (LANG === 'de'
       ? 'Die vollständige Dokumentation liegt auf dem Gerät und funktioniert ohne Internet.'
@@ -1094,7 +1419,248 @@ async function renderSystem() {
     '" target="_blank">' + t('sy.openDocs') + '</a></div></div>';
 
   document.getElementById('cfgLang').value = config.web.language || 'de';
+  if (document.getElementById('updLog')) pollUpdate();
 }
+
+/* ---- network watchdog ------------------------------------------------- */
+
+function networkCard(config) {
+  const watch = config.network_watch || {};
+  const live = (STATE.overview || {}).network || {};
+  const printers = ((STATE.overview || {}).printers || []);
+  const state = live.online == null
+    ? '<span class="dot unknown"></span>' + t('nw.unknown')
+    : (live.online
+        ? '<span class="dot ok"></span>' + t('nw.online')
+        : '<span class="dot error"></span>' + t('nw.offline'));
+  const links = (live.interfaces || []).map((link) =>
+    kv(esc(link.name) + (link.wireless ? ' (WLAN)' : ''),
+       (link.addresses || []).length
+         ? esc(link.addresses.join(', '))
+         : '<span class="muted">' + (link.carrier ? t('nw.noAddress') : t('nw.noCarrier')) + '</span>')
+  ).join('');
+
+  return '<div class="card"><h2>' + t('nw.title') + '</h2>' +
+    '<div class="big">' + state + '</div>' +
+    '<p class="fieldhelp">' + esc(t('nw.explain')) + '</p>' +
+    '<div class="kv">' + links + '</div>' +
+    '<div class="grid2" style="margin-top:.8rem"><div>' +
+    checkbox('nw.enabled', 'nwEnabled', t('nw.enabled'), watch.enabled !== false)
+      .replace('data-f="nwEnabled"', 'id="nwEnabled"') +
+    checkbox('nw.onLoss', 'nwLoss', t('nw.onLoss'), watch.print_on_loss !== false)
+      .replace('data-f="nwLoss"', 'id="nwLoss"') +
+    checkbox('nw.onRestore', 'nwRestore', t('nw.onRestore'), watch.print_on_restore !== false)
+      .replace('data-f="nwRestore"', 'id="nwRestore"') +
+    checkbox('nw.gateway', 'nwGateway', t('nw.gateway'), !!watch.gateway_check)
+      .replace('data-f="nwGateway"', 'id="nwGateway"') +
+    '</div><div>' +
+    lbl('nw.interval', t('nw.interval')) +
+    '<input type="number" id="nwInterval" min="10" max="3600" step="10" value="' +
+    esc(watch.interval || 60) + '" title="' + esc(help('nw.interval')) + '">' +
+    lbl('nw.confirmations', t('nw.confirmations')) +
+    '<input type="number" id="nwConfirm" min="1" max="10" value="' +
+    esc(watch.confirmations || 2) + '" title="' + esc(help('nw.confirmations')) + '">' +
+    '<div class="fieldhelp">' + esc(t('nw.perPrinterHint')) + '</div>' +
+    '</div></div>' +
+    '<div class="btnbar">' +
+    '<button class="act primary" onclick="saveNetworkWatch()">' + t('sy.save') + '</button>' +
+    '<button class="act" onclick="checkNetworkNow()">' + t('nw.checkNow') + '</button>' +
+    (printers.length
+      ? '<button class="act" onclick="testNetworkSlip(\'' + esc(printers[0].id) + '\')">' +
+        t('nw.testSlip') + '</button>'
+      : '') +
+    '</div></div>';
+}
+
+async function saveNetworkWatch() {
+  const patch = { network_watch: {
+    enabled: document.getElementById('nwEnabled').checked,
+    print_on_loss: document.getElementById('nwLoss').checked,
+    print_on_restore: document.getElementById('nwRestore').checked,
+    gateway_check: document.getElementById('nwGateway').checked,
+    interval: Number(document.getElementById('nwInterval').value) || 60,
+    confirmations: Number(document.getElementById('nwConfirm').value) || 2
+  } };
+  try {
+    await api('/api/config', { method: 'PUT', body: JSON.stringify(patch) });
+    toast(t('common.saved') + ' — ' + t('sy.restartHint'));
+    clearDirty('system');
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+async function checkNetworkNow() {
+  try {
+    const result = await api('/api/network/check', { method: 'POST' });
+    await reload(true);
+    toast(result.network && result.network.online ? t('nw.online') : t('nw.offline'));
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+async function testNetworkSlip(printerId) {
+  try {
+    await api('/api/printers/' + encodeURIComponent(printerId) + '/network-test',
+      { method: 'POST', body: JSON.stringify({ online: false }) });
+    toast(t('common.queued'));
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+window.saveNetworkWatch = saveNetworkWatch; window.checkNetworkNow = checkNetworkNow;
+window.testNetworkSlip = testNetworkSlip;
+
+/* ---- updates ---------------------------------------------------------- */
+
+function updateCard(config) {
+  const upd = (STATE.overview || {}).update || {};
+  const settings = config.update || {};
+  const status = upd.status || {};
+  const available = upd.update_available;
+
+  let head;
+  if (available) {
+    head = '<div class="big"><span class="dot warn"></span>' +
+      t('up.available') + ': ' + esc(upd.latest) + '</div>';
+  } else if (upd.check_error) {
+    // A failed check is a normal state (offline device, GitHub rate limit) -
+    // it belongs in a sentence, not in a headline.
+    head = '<div class="big"><span class="dot unknown"></span>' + t('up.notChecked') + '</div>' +
+      '<p class="fieldhelp">' + esc(upd.check_error) + '</p>';
+  } else if (upd.latest) {
+    head = '<div class="big"><span class="dot ok"></span>' + t('up.current') + '</div>';
+  } else {
+    head = '<div class="big"><span class="dot unknown"></span>' + t('up.notChecked') + '</div>';
+  }
+
+  let html = '<div class="card"><h2>' + t('up.title') + '</h2>' + head +
+    '<div class="kv">' +
+    kv(t('up.installed'), esc(upd.current || '')) +
+    kv(t('up.latest'), esc(upd.latest || '-')) +
+    kv(t('up.checkedAt'), upd.checked_at ? fmtTime(upd.checked_at) : t('ov.never')) +
+    kv(t('up.repo'), '<a href="https://github.com/' + esc(upd.repository || '') +
+       '" target="_blank" rel="noopener">' + esc(upd.repository || '') + '</a>') +
+    '</div>';
+
+  const notes = (upd.release || {}).notes;
+  if (available && notes) {
+    html += foldable('up.notes', t('up.notes'), '<pre>' + esc(notes) + '</pre>', true);
+  }
+
+  if (upd.allow_web === false) {
+    html += '<p class="fieldhelp">🔒 ' + esc(t('up.webDisabled')) + '</p>';
+  }
+
+  html += '<div class="btnbar">' +
+    '<button class="act" onclick="checkUpdate()">' + t('up.check') + '</button>' +
+    (available && upd.allow_web !== false
+      ? '<button class="act primary" onclick="installUpdate()">' + t('up.install') + '</button>'
+      : '') +
+    '</div>';
+
+  html += '<h3>' + t('up.offline') + '</h3>' +
+    '<p class="fieldhelp">' + esc(t('up.offlineHelp')) + '</p>' +
+    '<input type="file" id="updFile" accept=".zip,.gz,.tgz,.tar"' +
+    (upd.allow_web === false ? ' disabled' : '') + '>' +
+    '<div class="btnbar"><button class="act" onclick="uploadUpdate()"' +
+    (upd.allow_web === false ? ' disabled' : '') + '>' + t('up.upload') + '</button></div>';
+
+  html += '<h3>' + t('up.console') + '</h3>' +
+    '<pre id="updLog" class="console">' + esc(t('up.noOutput')) + '</pre>';
+  if (status.phase) {
+    html += '<div class="fieldhelp">' + t('up.phase') + ': ' + esc(status.phase) + '</div>';
+  }
+
+  html += checkbox('up.allowWeb', 'updAllowWeb', t('up.allowWeb'), settings.allow_web !== false)
+    .replace('data-f="updAllowWeb"', 'id="updAllowWeb"') +
+    checkbox('up.checkOnStart', 'updCheckStart', t('up.checkOnStart'), settings.check_on_start !== false)
+      .replace('data-f="updCheckStart"', 'id="updCheckStart"') +
+    '<div class="btnbar"><button class="act" onclick="saveUpdateSettings()">' + t('sy.save') + '</button></div>';
+
+  const backups = upd.backups || [];
+  if (backups.length) {
+    html += foldable('up.backups', t('up.backups'),
+      '<div class="kv">' + backups.map((b) =>
+        kv(esc(b.file), fmtBytes(b.size) + ' · ' + fmtTime(b.time))).join('') + '</div>' +
+      '<p class="fieldhelp">' + esc(t('up.backupHelp')) + '</p>', false);
+  }
+  return html + '</div>';
+}
+
+async function checkUpdate() {
+  toast(t('up.checking'));
+  try {
+    const result = await api('/api/update/check', { method: 'POST' });
+    await reload(true);
+    const check = result.check || {};
+    toast(check.update_available
+      ? t('up.available') + ': ' + check.latest
+      : (check.error || t('up.current')), !!check.error);
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+
+async function installUpdate() {
+  const upd = (STATE.overview || {}).update || {};
+  if (!confirm(t('up.confirm').replace('%s', upd.latest || '?'))) return;
+  try {
+    await api('/api/update/install', { method: 'POST', body: JSON.stringify({ source: 'online' }) });
+    toast(t('up.started'));
+    UPDATE_WATCH = true;
+    pollUpdate();
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+
+async function uploadUpdate() {
+  const input = document.getElementById('updFile');
+  const file = input && input.files && input.files[0];
+  if (!file) { toast(t('up.pickFile'), true); return; }
+  try {
+    const response = await fetch('/api/update/upload?name=' + encodeURIComponent(file.name),
+      { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) throw new Error(result.error || ('HTTP ' + response.status));
+    if (!confirm(t('up.confirmFile').replace('%s', result.version || '?'))) return;
+    await api('/api/update/install',
+      { method: 'POST', body: JSON.stringify({ source: 'file', file: result.file }) });
+    toast(t('up.started'));
+    UPDATE_WATCH = true;
+    pollUpdate();
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+
+async function saveUpdateSettings() {
+  const patch = { update: {
+    allow_web: document.getElementById('updAllowWeb').checked,
+    check_on_start: document.getElementById('updCheckStart').checked
+  } };
+  try {
+    await api('/api/config', { method: 'PUT', body: JSON.stringify(patch) });
+    toast(t('common.saved'));
+    clearDirty('system');
+    await reload(true);
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+
+let UPDATE_WATCH = false;
+async function pollUpdate() {
+  const box = document.getElementById('updLog');
+  if (!box) return;
+  try {
+    const result = await api('/api/update/log?lines=400');
+    if (result.log) {
+      box.textContent = result.log;
+      box.scrollTop = box.scrollHeight;
+    }
+    const status = result.status || {};
+    if (UPDATE_WATCH && status.running === false) {
+      UPDATE_WATCH = false;
+      toast(status.ok ? t('up.done') : (t('up.failed') + ': ' + (status.error || '')), !status.ok);
+      setTimeout(() => location.reload(), 2500);
+    }
+  } catch (e) {
+    // During the restart the daemon is briefly gone - that is expected.
+    if (UPDATE_WATCH) box.textContent += '\n' + t('up.restarting');
+  }
+  // While an update runs, watch it closely instead of on the 5 s tick.
+  if (UPDATE_WATCH) setTimeout(pollUpdate, 2000);
+}
+window.checkUpdate = checkUpdate; window.installUpdate = installUpdate;
+window.uploadUpdate = uploadUpdate; window.saveUpdateSettings = saveUpdateSettings;
+window.pollUpdate = pollUpdate;
 
 async function saveConfig() {
   const patch = {
@@ -1121,6 +1687,8 @@ window.saveConfig = saveConfig; window.restartServices = restartServices;
 /* ------------------------------------------------------------------ */
 
 function renderCurrent() {
+  // A full re-render replaces the DOM, so nothing unsaved survives it anyway.
+  clearDirty(CURRENT);
   if (CURRENT === 'overview') renderOverview();
   else if (CURRENT === 'printers') renderPrinters();
   else if (CURRENT === 'features') renderFeatures();
@@ -1130,17 +1698,44 @@ function renderCurrent() {
   else if (CURRENT === 'system') renderSystem();
 }
 
+/** True while the user is typing in, or has unsaved changes on, the open tab.
+ *
+ * The automatic refresh replaces the whole tab, so re-rendering underneath
+ * someone who is halfway through changing a dropdown would silently throw
+ * their change away.  In that case the refresh is skipped until they save or
+ * click elsewhere.
+ */
+function tabBusy() {
+  const section = document.getElementById(CURRENT);
+  if (!section) return false;
+  const active = document.activeElement;
+  if (active && section.contains(active) &&
+      /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) return true;
+  return section.getAttribute('data-dirty') === '1';
+}
+function markDirty(node) {
+  const section = node && node.closest ? node.closest('main section') : null;
+  if (section) section.setAttribute('data-dirty', '1');
+}
+function clearDirty(tab) {
+  const section = document.getElementById(tab || CURRENT);
+  if (section) section.removeAttribute('data-dirty');
+}
+
 async function reload(force) {
   try {
     STATE.overview = await api('/api/overview');
     const config = (await api('/api/config')).config;
+    STATE.config = config;
     STATE.configOptions = {}; STATE.configProfiles = {};
     (config.printers || []).forEach((p) => {
       STATE.configOptions[p.id] = p.options || {};
       STATE.configProfiles[p.id] = p.profile || 'auto';
     });
     if (force || CURRENT === 'overview' || CURRENT === 'features' || CURRENT === 'connect') {
-      if (!(CURRENT === 'print' && !force)) renderCurrent();
+      if (CURRENT === 'print' && !force) return;
+      if (!force && tabBusy()) return;
+      renderCurrent();
     }
   } catch (e) {
     toast(t('common.error') + ': ' + e.message, true);
@@ -1168,9 +1763,23 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('lang').addEventListener('change', (event) => {
     LANG = event.target.value; localStorage.setItem('bb.lang', LANG); applyLanguage(); renderCurrent();
   });
+  // `toggle` does not bubble, so listen in the capture phase.  Without this
+  // every collapsed panel reopened on the next automatic refresh.
+  document.addEventListener('toggle', (event) => {
+    const node = event.target;
+    if (node && node.tagName === 'DETAILS' && node.hasAttribute('data-open-key')) {
+      rememberOpen(node.getAttribute('data-open-key'), node.open);
+    }
+  }, true);
+  // Anything the user changes marks its tab as unsaved, which pauses the
+  // automatic refresh for that tab until it is saved.
+  document.addEventListener('change', (event) => markDirty(event.target), true);
+  document.addEventListener('input', (event) => markDirty(event.target), true);
+
   applyLanguage();
   reload(true);
   TIMER = setInterval(() => {
     if (CURRENT === 'overview' || CURRENT === 'features') reload(false);
+    if (CURRENT === 'system') pollUpdate();
   }, 5000);
 });

@@ -176,6 +176,13 @@ Wofür das gut ist: Testbons ohne Kassensystem, Beschriftungen, Übergabezettel,
 Tagesabschluss-Notizen – und vor allem zum Prüfen, ob Zeilenbreite und
 Zeichensatz stimmen, bevor man das Kassensystem konfiguriert.
 
+### Bild drucken
+
+Über den Umschalter **Text | Bild** lassen sich PNG-, JPG-, BMP-, GIF- und
+WebP-Dateien drucken. Die Vorschau zeigt das tatsächliche Punktmuster, nicht
+eine Annäherung. PDF wird nicht unterstützt. Einzelheiten in
+[10-updates.md](10-updates.md).
+
 ## Diagnose
 
 * **Letzte Druckaufträge** – Nummer, Quelle (IP des Kassensystems), Größe,
@@ -213,7 +220,21 @@ Beispielbefehle für CUPS, Windows, macOS und die Kommandozeile.
   überhaupt sucht
 * Systeminformationen: Modell, Betriebssystem, Kernel, Architektur, Python,
   Laufzeit, freier Speicher
+* **Netzwerküberwachung** – Zustand aller Schnittstellen, Prüfintervall und ob
+  bei einem Ausfall ein Hinweiszettel gedruckt wird
+  (siehe [10-updates.md](10-updates.md))
+* **Updates** – installierte und verfügbare Version, Installation mit
+  Konsolenausgabe, Upload einer Datei für Geräte ohne Internet, Backups
+  (siehe [10-updates.md](10-updates.md))
 * Links auf die Dokumentation in der eingestellten Sprache
+
+### Klapp-Zustände bleiben erhalten
+
+Aufgeklappte oder zugeklappte Bereiche (Einzelprüfungen, Hexdumps,
+Kommandoausgaben) bleiben so, wie du sie gelassen hast – auch über die
+automatische Aktualisierung alle fünf Sekunden und über einen Seitenneuladen
+hinweg. Ebenso pausiert die automatische Aktualisierung, solange ein Feld
+ungespeicherte Änderungen enthält; sonst würde sie sie überschreiben.
 
 ## REST-API
 
@@ -238,6 +259,17 @@ einem Skript oder einem Monitoring-System ansprechen.
 | GET | `/api/diagnostics` | Systeminfos + Kommandoausgaben |
 | GET | `/api/report` | Support-Bericht als Text |
 | POST | `/api/restart` | Drucker und Listener neu starten |
+| GET | `/api/network` | Zustand der Netzwerkverbindung |
+| POST | `/api/network/check` | Netzwerk sofort prüfen |
+| POST | `/api/printers/<id>/network-test` | Hinweiszettel testweise drucken |
+| GET | `/api/update` | Update-Status (installiert/verfügbar/Backups) |
+| POST | `/api/update/check` | bei GitHub nachfragen |
+| POST | `/api/update/install` | `{"source": "online"}` oder `{"source": "file", "file": "..."}` |
+| POST | `/api/update/upload` | Archiv hochladen (roher Datei-Inhalt, `?name=`) |
+| GET | `/api/update/log` | Konsolenausgabe des laufenden Updates |
+| GET | `/api/image/support` | ist der Bilddruck verfügbar? |
+| POST | `/api/printers/<id>/image` | Bild hochladen, liefert Vorschau + Token |
+| POST | `/api/printers/<id>/image/print` | `{"token": "..."}` drucken |
 | GET | `/api/health` | Alle Einzelprüfungen mit Begründung |
 | GET | `/api/discovery` | Zustand und Protokoll der automatischen Suche |
 | POST | `/api/discovery/clear` | Suchanfragen-Protokoll leeren |

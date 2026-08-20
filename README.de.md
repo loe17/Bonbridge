@@ -111,6 +111,7 @@ Details: [`docs/de/04-orderassist.md`](docs/de/04-orderassist.md)
 | Mehrere Ausdruckgruppen | [07-ausdruckgruppen.md](docs/de/07-ausdruckgruppen.md) | [07-print-groups.md](docs/en/07-print-groups.md) |
 | Architektur | [08-architektur.md](docs/de/08-architektur.md) | [08-architecture.md](docs/en/08-architecture.md) |
 | **Fremdcode & Quellen** | [09-referenzen.md](docs/de/09-referenzen.md) | [09-references.md](docs/en/09-references.md) |
+| **Updates, Netzwerküberwachung, Wartung** | [10-updates.md](docs/de/10-updates.md) | [10-updates.md](docs/en/10-updates.md) |
 
 ## Lizenz
 

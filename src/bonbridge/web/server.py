@@ -118,7 +118,15 @@ class WebApplication:
         @self.route("PUT", r"/api/config")
         def put_config(*, body: Optional[bytes] = None, **_: Any) -> Dict[str, Any]:
             patch = self._json_body(body)
-            allowed = {"web", "raw", "discovery", "logging", "hostname_label"}
+            allowed = {
+                "web",
+                "raw",
+                "discovery",
+                "logging",
+                "hostname_label",
+                "network_watch",
+                "update",
+            }
             unknown = set(patch) - allowed
             if unknown:
                 raise ApiError(f"cannot change: {', '.join(sorted(unknown))}")
@@ -240,6 +248,115 @@ class WebApplication:
             if not isinstance(spec, dict):
                 raise ApiError("missing 'spec' object")
             return app.compose(printer_id, spec, do_print=bool(payload.get("print")))
+
+        # -- network watchdog ------------------------------------------
+
+        @self.route("GET", r"/api/network")
+        def network_route(**_: Any) -> Dict[str, Any]:
+            return {"ok": True, "network": app.network_state()}
+
+        @self.route("POST", r"/api/network/check")
+        def network_check_route(**_: Any) -> Dict[str, Any]:
+            return app.check_network()
+
+        @self.route("POST", r"/api/printers/([^/]+)/network-test")
+        def network_test(printer_id: str, *, body: Optional[bytes] = None, **_: Any) -> Dict[str, Any]:
+            payload = self._json_body(body)
+            return app.test_network_alert(printer_id, bool(payload.get("online")))
+
+        # -- software updates ------------------------------------------
+
+        @self.route("GET", r"/api/update")
+        def update_route(**_: Any) -> Dict[str, Any]:
+            return {"ok": True, "update": app.update_state()}
+
+        @self.route("POST", r"/api/update/check")
+        def update_check(**_: Any) -> Dict[str, Any]:
+            return app.check_update()
+
+        @self.route("GET", r"/api/update/log")
+        def update_log(*, query: Optional[Dict[str, List[str]]] = None, **_: Any) -> Dict[str, Any]:
+            try:
+                lines = int((query or {}).get("lines", ["200"])[0])
+            except ValueError:
+                lines = 200
+            return app.update_log(max(10, min(2000, lines)))
+
+        @self.route("POST", r"/api/update/install")
+        def update_install(*, body: Optional[bytes] = None, **_: Any) -> Dict[str, Any]:
+            payload = self._json_body(body)
+            try:
+                return app.start_update(
+                    str(payload.get("source") or "online"), str(payload.get("file") or "")
+                )
+            except PermissionError as exc:
+                raise ApiError(str(exc), 403) from exc
+
+        @self.route("POST", r"/api/update/upload")
+        def update_upload(
+            *, query: Optional[Dict[str, List[str]]] = None, body: Optional[bytes] = None, **_: Any
+        ) -> Dict[str, Any]:
+            if not body:
+                raise ApiError("no file received")
+            name = (query or {}).get("name", ["update.tar.gz"])[0]
+            try:
+                return app.store_upload(name, body)
+            except PermissionError as exc:
+                raise ApiError(str(exc), 403) from exc
+
+        # -- printing an image -----------------------------------------
+
+        @self.route("GET", r"/api/image/support")
+        def image_support(**_: Any) -> Dict[str, Any]:
+            from .. import images
+
+            return {"ok": True, "support": images.availability()}
+
+        @self.route("POST", r"/api/printers/([^/]+)/image")
+        def image_prepare(
+            printer_id: str,
+            *,
+            query: Optional[Dict[str, List[str]]] = None,
+            body: Optional[bytes] = None,
+            **_: Any,
+        ) -> Dict[str, Any]:
+            if not body:
+                raise ApiError("no image received")
+            params = query or {}
+
+            def flag(name: str, default: bool) -> bool:
+                raw = params.get(name, [None])[0]
+                if raw is None:
+                    return default
+                return raw not in ("0", "false", "no")
+
+            def number(name: str, default: int) -> int:
+                try:
+                    return int(params.get(name, [str(default)])[0])
+                except ValueError:
+                    return default
+
+            return app.prepare_image(
+                printer_id,
+                body,
+                {
+                    "scale": number("scale", 100),
+                    "threshold": number("threshold", 128),
+                    "feed": number("feed", 1),
+                    "dither": flag("dither", True),
+                    "invert": flag("invert", False),
+                    "cut": flag("cut", True),
+                    "align": params.get("align", ["center"])[0],
+                },
+            )
+
+        @self.route("POST", r"/api/printers/([^/]+)/image/print")
+        def image_print(printer_id: str, *, body: Optional[bytes] = None, **_: Any) -> Dict[str, Any]:
+            payload = self._json_body(body)
+            token = str(payload.get("token") or "")
+            if not token:
+                raise ApiError("missing 'token'")
+            return app.print_image(printer_id, token)
 
         @self.route("GET", r"/api/scan")
         def scan(**_: Any) -> Dict[str, Any]:
@@ -380,6 +497,7 @@ DOC_PAGES = {
         ("07-ausdruckgruppen.md", "Mehrere Drucker"),
         ("08-architektur.md", "Architektur"),
         ("09-referenzen.md", "Referenzen"),
+        ("10-updates.md", "Updates & Wartung"),
     ],
     "en": [
         ("01-hardware.md", "Hardware"),
@@ -391,6 +509,7 @@ DOC_PAGES = {
         ("07-print-groups.md", "Several printers"),
         ("08-architecture.md", "Architecture"),
         ("09-references.md", "References"),
+        ("10-updates.md", "Updates & maintenance"),
     ],
 }
 
@@ -546,7 +665,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
             return None
         if length <= 0:
             return None
-        if length > 8 * 1024 * 1024:
+        # Large enough for an update archive or a photo, small enough that a
+        # stray request cannot exhaust a Pi Zero's memory.
+        if length > 48 * 1024 * 1024:
             return None
         return self.rfile.read(length)
 

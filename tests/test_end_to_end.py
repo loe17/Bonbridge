@@ -10,12 +10,15 @@ Usage::
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import socket
 import sys
+import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -35,6 +38,10 @@ from bonbridge.config import Config  # noqa: E402
 from bonbridge.daemon import BonBridge  # noqa: E402
 from bonbridge.web.server import WebServer  # noqa: E402
 from mock_printer import MockPrinter  # noqa: E402
+
+from bonbridge import netwatch as _netwatch  # noqa: E402
+
+_REAL_SNAPSHOT = _netwatch.snapshot
 
 RAW_PORT = 19100
 WEB_PORT = 18080
@@ -131,6 +138,178 @@ def check_system_info_cache() -> None:
     check(elapsed < 0.5, f"50 cached overview readings stay cheap ({elapsed * 1000:.0f} ms)")
 
 
+
+def check_network_watchdog() -> None:
+    """The watchdog must report transitions once, not on every poll."""
+    from bonbridge import netwatch
+
+    state = netwatch.snapshot(gateway_check=False)
+    check("online" in state and "reason" in state, "network snapshot has a verdict")
+    check(isinstance(state.get("interfaces"), list), "network snapshot lists interfaces")
+
+    events = []
+    watcher = netwatch.NetworkWatcher(
+        lambda online, snap, since: events.append(online), interval=3600, confirmations=2
+    )
+    fake_online = {"online": True, "reason": "online", "interfaces": [], "ip": "10.0.0.5"}
+    fake_offline = {"online": False, "reason": "no_carrier", "interfaces": [], "ip": ""}
+
+    netwatch.snapshot = lambda *a, **k: fake_online  # type: ignore[assignment]
+    watcher.check_once()
+    check(events == [], "no slip while the network is fine")
+
+    netwatch.snapshot = lambda *a, **k: fake_offline  # type: ignore[assignment]
+    watcher.check_once()
+    check(events == [], "a single failed check does not trigger (anti-flapping)")
+    watcher.check_once()
+    check(events == [False], "the outage is reported after the second check")
+    watcher.check_once()
+    watcher.check_once()
+    check(events == [False], "the outage is reported only once, not per poll")
+
+    netwatch.snapshot = lambda *a, **k: fake_online  # type: ignore[assignment]
+    watcher.check_once()
+    watcher.check_once()
+    check(events == [False, True], "the recovery is reported once")
+
+    # A device that starts up without a network reports immediately.
+    netwatch.snapshot = lambda *a, **k: fake_offline  # type: ignore[assignment]
+    fresh_events = []
+    fresh = netwatch.NetworkWatcher(
+        lambda online, snap, since: fresh_events.append(online), interval=3600, confirmations=2
+    )
+    fresh.check_once()
+    check(fresh_events == [False], "starting without a network reports straight away")
+
+    netwatch.snapshot = _REAL_SNAPSHOT  # type: ignore[assignment]
+
+    slip = escpos.network_alert_page(
+        online=False, printer_name="Theke 1", reason="Kein Signal", columns=42,
+        rows=[("eth0", "kein Signal")], timestamp="2026-08-20 10:00:00",
+    )
+    check(b"KEINE NETZWERKVERBINDUNG" in slip, "outage slip carries the heading")
+    check(b"eth0" in slip, "outage slip lists the interface")
+    back = escpos.network_alert_page(
+        online=True, printer_name="Theke 1", columns=42, address="192.168.1.50", outage="7 min"
+    )
+    check(b"192.168.1.50" in back, "recovery slip carries the new address")
+
+
+def check_profile_matching() -> None:
+    """Model identification must use every identifier that is available."""
+    from bonbridge import caps
+
+    profile, reason = caps.match_profile({"manufacturer": "EPSON", "product": "TM-T88V"})
+    check(profile == "TM-T88V", f"USB product string identifies the model (got {profile})")
+
+    # The regression this guards: usblp connections only expose the model in
+    # the IEEE-1284 device ID, which used to be collected but never matched.
+    profile, reason = caps.match_profile(
+        {"ieee1284_id": "MFG:EPSON;CMD:ESC/POS;MDL:TM-T88V;CLS:PRINTER;"}
+    )
+    check(profile == "TM-T88V", f"IEEE-1284 device ID identifies the model (got {profile})")
+
+    profile, reason = caps.match_profile({"gs_i": {"model_text": "TM-T88V"}})
+    check(profile == "TM-T88V", "the GS I reply identifies the model")
+
+    profile, reason = caps.match_profile({})
+    check(profile.startswith("generic"), "no identifier at all falls back to generic")
+    check("Keine Modellkennung" in reason, "the fallback says why it fell back")
+
+    from bonbridge import health
+
+    checks = health.profile_check(
+        {"capabilities": {"profile_id": "generic-80mm"}, "identity": {"product": ""}}
+    )
+    check(checks and checks[0]["level"] == "warn", "a generic profile is reported as a warning")
+
+
+def check_updater() -> None:
+    """Archive handling: what goes in must come out, and only if it is ours."""
+    from bonbridge import updater
+
+    check(updater.parse_version("v1.2.3") == (1, 2, 3), "version tags are parsed")
+    check(updater.is_newer("1.10.0", "1.9.9"), "1.10 is newer than 1.9")
+    check(not updater.is_newer("1.1.2", "1.1.2"), "the same version is not newer")
+
+    work = TMP / "update"
+    work.mkdir(parents=True, exist_ok=True)
+
+    # A valid release archive round-trips and reports its version.
+    good = work / "good.tar.gz"
+    with tarfile.open(good, "w:gz") as archive:
+        for name in ("install.sh", "VERSION", "src/bonbridge/__init__.py"):
+            source = ROOT / name
+            archive.add(source, arcname=f"Bonbridge-9.9.9/{name}")
+    root = updater.extract(good, work / "out-good")
+    check(root.name == "Bonbridge-9.9.9", "the source root inside the archive is found")
+    check(updater.archive_version(root) != "", "the archive version is readable")
+
+    # Something that is not BonBridge must be refused, not half-installed.
+    bad = work / "bad.tar.gz"
+    with tarfile.open(bad, "w:gz") as archive:
+        info = tarfile.TarInfo("hello.txt")
+        payload = b"not a release"
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+    try:
+        updater.extract(bad, work / "out-bad")
+        check(False, "a foreign archive is rejected")
+    except ValueError:
+        check(True, "a foreign archive is rejected")
+
+    # Path traversal in a member name must not escape the target directory.
+    evil = work / "evil.tar.gz"
+    with tarfile.open(evil, "w:gz") as archive:
+        info = tarfile.TarInfo("../escaped.txt")
+        payload = b"x"
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+    try:
+        updater.extract(evil, work / "out-evil")
+        check(False, "an archive that escapes its directory is rejected")
+    except ValueError:
+        check(True, "an archive that escapes its directory is rejected")
+
+    script = updater.build_runner_script(root, "9.9.9")
+    text = script.read_text(encoding="utf-8")
+    check("install.sh" in text and str(root) in text, "the runner script calls install.sh")
+
+
+def check_image_printing() -> None:
+    """The preview has to be the bitmap that is printed, not a lookalike."""
+    from bonbridge import images
+
+    if not images.HAVE_PIL:
+        check(True, "image printing reports itself unavailable without Pillow")
+        return
+
+    from PIL import Image as PILImage
+
+    source = PILImage.new("RGB", (200, 80), (255, 255, 255))
+    for x in range(0, 200, 2):
+        for y in range(0, 40):
+            source.putpixel((x, y), (0, 0, 0))
+    buffer = io.BytesIO()
+    source.save(buffer, format="PNG")
+    data = buffer.getvalue()
+
+    result = images.rasterise(data, dots=576, dither=False, threshold=128)
+    check(result["width"] == 576, f"the bitmap is padded to the print width ({result['width']})")
+    check(result["preview_png"].startswith("data:image/png;base64,"), "the preview is a PNG")
+    check(result["escpos"].startswith(b"\x1d\x76\x30\x00"), "GS v 0 raster command emitted")
+
+    # Row count in the command header must match the actual bitmap height.
+    header = result["escpos"][4:8]
+    width_bytes = header[0] | (header[1] << 8)
+    rows = header[2] | (header[3] << 8)
+    check(width_bytes == 72, f"row width is 72 bytes for 576 dots (got {width_bytes})")
+    check(rows == min(images.BAND_ROWS, result["height"]), "the band height matches the bitmap")
+
+    check(images.sniff(data)[1] == "PNG", "PNG is recognised")
+    check(images.sniff(b"%PDF-1.4 ...")[0] == "pdf", "a PDF is recognised and can be refused")
+
+
 def main() -> int:
     printer = MockPrinter("127.0.0.1", PRINTER_PORT).start()
     print(f"mock printer on 127.0.0.1:{PRINTER_PORT}")
@@ -164,6 +343,10 @@ def main() -> int:
         # 0. structural check that survives Python upgrades
         check_thread_subclasses()
         check_system_info_cache()
+        check_network_watchdog()
+        check_profile_matching()
+        check_updater()
+        check_image_printing()
 
         # 1. the RAW listener accepts a job like a POS application would
         payload = b"\x1b@Bestellung Tisch 4\n2x Cola\n1x Pommes\n\n\n"
@@ -373,6 +556,64 @@ def main() -> int:
         with urllib.request.urlopen(f"http://127.0.0.1:{WEB_PORT}/docs-img/wiring-usb.svg", timeout=5) as response:
             check(response.status == 200, "documentation image served")
 
+        # 8b. network watchdog over the API
+        network = get_json("/api/network")["network"]
+        check("interfaces" in network, "network state served over the API")
+        checked = get_json("/api/network/check", method="POST")
+        check(checked.get("ok"), "on-demand network check runs")
+        overview = get_json("/api/overview")
+        check("network" in overview, "overview carries the network state")
+        before = len(printer.data)
+        get_json("/api/printers/theke1/network-test", method="POST", payload={"online": False})
+        time.sleep(1.5)
+        check(len(printer.data) > before, "the outage slip can be printed on demand")
+
+        # 8c. printing an image
+        support = get_json("/api/image/support")["support"]
+        check("available" in support, "image support is reported")
+        if support["available"]:
+            from PIL import Image as PILImage
+
+            buffer = io.BytesIO()
+            PILImage.new("L", (120, 60), 128).save(buffer, format="PNG")
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{WEB_PORT}/api/printers/theke1/image?scale=80",
+                data=buffer.getvalue(),
+                method="POST",
+            )
+            request.add_header("Content-Type", "application/octet-stream")
+            with urllib.request.urlopen(request, timeout=15) as response:
+                prepared = json.loads(response.read())
+            check(prepared.get("ok"), "an uploaded image is rasterised")
+            check(prepared["preview_png"].startswith("data:image/png"), "preview returned")
+            before = len(printer.data)
+            printed = get_json(
+                "/api/printers/theke1/image/print",
+                method="POST",
+                payload={"token": prepared["token"]},
+            )
+            check(printed.get("ok"), "the previewed image is printed")
+            time.sleep(1.5)
+            check(len(printer.data) > before, "raster data reached the printer")
+
+            # A PDF has to be refused with a useful message, not a stack trace.
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{WEB_PORT}/api/printers/theke1/image",
+                data=b"%PDF-1.4 fake",
+                method="POST",
+            )
+            request.add_header("Content-Type", "application/octet-stream")
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    refused = json.loads(response.read())
+                check(
+                    refused.get("ok") is False and "PDF" in refused.get("error", ""),
+                    "a PDF is refused with an explanation",
+                )
+            except urllib.error.HTTPError:
+                check(False, "a PDF is refused with an explanation")
+
+
         # 9. spooling: printer unreachable -> job is kept, then delivered
         printer.stop()
         time.sleep(0.3)
@@ -399,6 +640,43 @@ def main() -> int:
         with urllib.request.urlopen(f"http://127.0.0.1:{WEB_PORT}/", timeout=5) as response:
             html = response.read().decode()
         check("BonBridge" in html and "app.js" in html, "web interface served")
+
+        # 11. updates
+        update = get_json("/api/update")["update"]
+        check(update["current"] == overview["version"], "update card knows the running version")
+        check(update["allow_web"] is True, "web updates are allowed by default")
+        log = get_json("/api/update/log")
+        check(log.get("ok"), "update log endpoint answers")
+
+        # A file that is not a release must be refused before anything happens.
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{WEB_PORT}/api/update/upload?name=evil.tar.gz",
+            data=b"this is not a tar file",
+            method="POST",
+        )
+        request.add_header("Content-Type", "application/octet-stream")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                payload = json.loads(response.read())
+            check(payload.get("ok") is False, "a bogus update file is rejected")
+        except urllib.error.HTTPError as exc:
+            check(exc.code in (400, 500), "a bogus update file is rejected")
+
+        # Turning the switch off must actually close the door.
+        get_json("/api/config", method="PUT", payload={"update": {"allow_web": False}})
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{WEB_PORT}/api/update/install",
+            data=json.dumps({"source": "online"}).encode(),
+            method="POST",
+        )
+        request.add_header("Content-Type", "application/json")
+        try:
+            urllib.request.urlopen(request, timeout=10)
+            check(False, "web updates are refused when switched off")
+        except urllib.error.HTTPError as exc:
+            check(exc.code == 403, f"web updates are refused when switched off (HTTP {exc.code})")
+        get_json("/api/config", method="PUT", payload={"update": {"allow_web": True}})
+
 
     finally:
         web.stop()

@@ -107,7 +107,9 @@ MODEL=""
 info "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-PACKAGES="python3 python3-yaml python3-usb python3-serial libusb-1.0-0 iproute2 ca-certificates"
+#: python3-pil is what makes "print an image from the web interface" possible;
+#: everything else works without it, so a failure to install it is not fatal.
+PACKAGES="python3 python3-yaml python3-usb python3-serial python3-pil libusb-1.0-0 iproute2 ca-certificates"
 # avahi makes bonbridge.local work; harmless if it is already there
 PACKAGES="$PACKAGES avahi-daemon"
 # Small boards (Pi 1 / Zero with 256-512 MB) really do not want CUPS on top.
@@ -121,7 +123,14 @@ if [ "$WITH_CUPS" -eq 1 ]; then
   PACKAGES="$PACKAGES cups cups-filters build-essential cmake libcups2-dev libcupsimage2-dev"
 fi
 # shellcheck disable=SC2086
-apt-get install -y -qq $PACKAGES || die "package installation failed"
+if ! apt-get install -y -qq $PACKAGES; then
+  warn "installing all packages at once failed - retrying without python3-pil"
+  PACKAGES="$(echo "$PACKAGES" | sed 's/python3-pil//')"
+  # shellcheck disable=SC2086
+  apt-get install -y -qq $PACKAGES || die "package installation failed"
+  warn "image printing in the web interface will be unavailable"
+  warn "install it later with:  sudo apt install python3-pil"
+fi
 ok "packages installed"
 
 # BonBridge needs Python 3.9+.  Every Raspberry Pi OS from Bullseye on and every
@@ -330,6 +339,8 @@ echo "  Status        :  systemctl status bonbridge"
 echo "  Log           :  journalctl -u bonbridge -f"
 echo "  Detect devices:  bonbridge scan"
 echo "  Support report:  bonbridge report > report.txt"
+echo "  Update        :  sudo bonbridge update        (--check only looks)"
+echo "  Undo an update:  sudo bonbridge update --rollback"
 echo "  Uninstall     :  sudo bash ${INSTALL_DIR}/uninstall.sh"
 echo
 if ! ls /dev/usb/lp* >/dev/null 2>&1 && ! lsusb 2>/dev/null | grep -qiE 'epson|printer|star micronics'; then

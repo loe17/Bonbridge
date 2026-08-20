@@ -599,6 +599,117 @@ def status_report_page(
     return bytes(out)
 
 
+def network_alert_page(
+    *,
+    online: bool,
+    printer_name: str,
+    reason: str = "",
+    columns: int = 42,
+    codepage: str = "cp1252",
+    language: str = "de",
+    timestamp: str = "",
+    rows: Optional[List[Tuple[str, str]]] = None,
+    outage: str = "",
+    address: str = "",
+    do_cut: bool = True,
+) -> bytes:
+    """Slip printed when the device loses or regains its network connection.
+
+    The printer is reachable over USB even while the network is down, so it is
+    the one component that can still tell somebody what actually happened -
+    which beats "the printer is broken" as a diagnosis.
+    """
+    german = language.lower().startswith("de")
+    if online:
+        heading = "NETZWERK WIEDER DA" if german else "NETWORK IS BACK"
+        body = (
+            [
+                "Die Netzwerkverbindung steht wieder.",
+                "Das Kassensystem kann wieder drucken.",
+            ]
+            if german
+            else [
+                "The network connection is back.",
+                "The POS application can print again.",
+            ]
+        )
+    else:
+        heading = "KEINE NETZWERKVERBINDUNG" if german else "NO NETWORK CONNECTION"
+        body = (
+            [
+                "Dieses Geraet ist gerade nicht im Netzwerk.",
+                "Das Kassensystem kann diesen Drucker",
+                "deshalb nicht erreichen - der Drucker",
+                "selbst ist in Ordnung.",
+                "",
+                "Bitte pruefen:",
+                "- LAN-Kabel an Geraet und Switch",
+                "- Switch/Router eingeschaltet",
+                "- bei WLAN: Reichweite und Passwort",
+            ]
+            if german
+            else [
+                "This device is currently off the network.",
+                "The POS application cannot reach this",
+                "printer - the printer itself is fine.",
+                "",
+                "Please check:",
+                "- LAN cable at the device and the switch",
+                "- switch/router powered on",
+                "- for Wi-Fi: range and password",
+            ]
+        )
+
+    out = bytearray()
+    out += INIT + select_codepage(codepage)
+
+    def line(text: str = "") -> None:
+        out.extend(encode_text(text, codepage) + LF)
+
+    out += align("center")
+    line("*" * columns)
+    out += emphasis(True)
+    if len(heading) <= max(1, columns // 2):
+        out += double_size(True)
+        line(heading)
+        out += double_size(False)
+    else:
+        line(heading)
+    out += emphasis(False)
+    line("*" * columns)
+    out += align("left")
+    line()
+    line(("Drucker: " if german else "Printer: ") + printer_name)
+    if timestamp:
+        line(("Zeit:    " if german else "Time:    ") + timestamp)
+    if outage:
+        line(("Ausfall: " if german else "Outage:  ") + outage)
+    if address:
+        line(("Adresse: " if german else "Address: ") + address)
+    if reason:
+        line()
+        for wrapped in wrap_line(reason, columns):
+            line(wrapped)
+    if rows:
+        line("-" * columns)
+        for key, value in rows:
+            line(pad_columns(key, value, columns))
+    line("-" * columns)
+    for text in body:
+        if not text:
+            line()
+            continue
+        for wrapped in wrap_line(text, columns):
+            line(wrapped)
+    line()
+    line("=" * columns)
+    if do_cut:
+        out += cut("partial", feed_lines=4)
+    else:
+        out += feed(5)
+    return bytes(out)
+
+
 def paper_low_page(
     *,
     printer_name: str,

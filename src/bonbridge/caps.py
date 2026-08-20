@@ -195,7 +195,24 @@ def match_profile(identity: Dict[str, Any]) -> Tuple[str, str]:
     manufacturer = identity.get("manufacturer") or ""
     vendor_id = identity.get("vendor_id")
     product_id = identity.get("product_id")
-    haystack = _normalise(f"{manufacturer} {product}")
+
+    # Every string that may carry the model name.  The IEEE-1284 device ID is
+    # the important one for /dev/usb/lpN connections: it reads
+    # "MFG:EPSON;MDL:TM-T88V;..." and used to be collected but never matched
+    # against, so a printer reached through usblp always fell back to the
+    # generic profile even though its model was known.
+    sources = [manufacturer, product, identity.get("ieee1284_id") or ""]
+    for key, value in (identity.get("gs_i") or {}).items():
+        if key.endswith("_text") and isinstance(value, str):
+            sources.append(value)
+    haystack = _normalise(" ".join(part for part in sources if part))
+
+    if not haystack:
+        return (
+            "generic-80mm",
+            "Keine Modellkennung lesbar - Sammelprofil 80 mm / "
+            "no model identification readable - generic 80 mm fallback",
+        )
 
     local = load_local_profiles()
 
@@ -226,9 +243,10 @@ def match_profile(identity: Dict[str, Any]) -> Tuple[str, str]:
                          f"model name found in USB descriptor")
 
     # 4. width heuristics
+    seen = ", ".join(part for part in sources if part)[:120]
     if "58" in (product or ""):
-        return "generic-58mm", "Sammelprofil 58 mm / generic 58 mm fallback"
-    return "generic-80mm", "Sammelprofil 80 mm / generic 80 mm fallback"
+        return "generic-58mm", f"Sammelprofil 58 mm / generic 58 mm fallback (gelesen: {seen})"
+    return "generic-80mm", f"Sammelprofil 80 mm / generic 80 mm fallback (gelesen: {seen})"
 
 
 def query_identity(transport: BaseTransport, timeout: float = 1.0) -> Dict[str, Any]:

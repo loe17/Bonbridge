@@ -101,6 +101,8 @@ class PrinterWorker(threading.Thread):
         # again.  Persisted so a reboot does not reprint it.
         self._paper_low_reported = bool(state.get("paper_low_reported", self.printer_id, False))
         self._startup_report_done = False
+        #: Device entry from the scan taken just before the port was opened.
+        self._scan_hint: Optional[Dict[str, Any]] = None
         #: Filled in by the daemon so the startup slip can name the IP address.
         self.report_context: Dict[str, Any] = {}
 
@@ -132,6 +134,17 @@ class PrinterWorker(threading.Thread):
                 return self.transport
             if self.transport is None:
                 self.transport = build_transport(self.config.get("transport"))
+            # Scan while the device is still free.  Once the interface is
+            # claimed, reading USB descriptor strings can fail, and without
+            # them the printer cannot be identified (issue: correct printing
+            # but a generic profile).
+            try:
+                self._scan_hint = self._find_scanned_device(
+                    dict(getattr(self.transport, "settings", {}) or {})
+                )
+            except Exception as exc:  # noqa: BLE001 - identification is a bonus
+                log.debug("[%s] pre-open device scan failed: %s", self.printer_id, exc)
+                self._scan_hint = None
             self.transport.open()
             self.connected = True
             self.last_error = None
@@ -201,10 +214,11 @@ class PrinterWorker(threading.Thread):
         identity["connection"] = transport.connection_label()
         identity["transport"] = transport.type_name
 
-        # Enrich from a fresh device scan so USB descriptor strings are
-        # available even when the transport itself did not read them.
+        # Enrich from the pre-open scan (or, failing that, a fresh one) so USB
+        # descriptor strings are available even when the transport itself did
+        # not read them.
         try:
-            match = self._find_scanned_device(settings)
+            match = self._scan_hint or self._find_scanned_device(settings)
             if match:
                 identity["product"] = identity.get("product") or match.get("product", "")
                 identity["manufacturer"] = identity.get("manufacturer") or match.get(

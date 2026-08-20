@@ -50,6 +50,11 @@ DEFAULT_PRINTER_OPTIONS: Dict[str, Any] = {
     # Print a warning slip when the printer reports "paper near end".
     # Off by default so it cannot surprise anyone during service.
     "paper_low_warning": False,
+    # Print a slip on this printer when the *device* loses or regains its
+    # network connection.  The USB link to the printer is unaffected by a
+    # network outage, so the printer is the only thing left that can explain
+    # why the POS application stopped printing.
+    "network_alert": True,
     # Append a paper cut after every job.  Most POS apps send their own cut
     # command, so this is off by default.
     "cut_after_job": False,
@@ -117,6 +122,35 @@ DEFAULTS: Dict[str, Any] = {
         "log_probes": True,
         # UDP port of the Epson discovery protocol.  Only changed by the tests.
         "enpc_port": 3289,
+    },
+    #: Watches the device's own network connection (see netwatch.py).  Which
+    #: printers report an outage is decided per printer via the
+    #: ``network_alert`` option.
+    "network_watch": {
+        "enabled": True,
+        # Seconds between checks.  Reading sysfs is cheap; 60 s is a compromise
+        # between noticing quickly and not writing a log line every second.
+        "interval": 60.0,
+        "print_on_loss": True,
+        "print_on_restore": True,
+        # Additionally ping the default gateway.  Catches "connected but the
+        # router is dead", costs one subprocess per check - hence off.
+        "gateway_check": False,
+        # How many consecutive checks a changed state has to survive before it
+        # counts.  2 keeps a short Wi-Fi roam from producing a slip.
+        "confirmations": 2,
+    },
+    #: Software updates from GitHub (see updater.py).
+    "update": {
+        "repository": "loe17/Bonbridge",
+        # Only published releases/tags are offered, never the moving branch.
+        "channel": "release",
+        "check_on_start": True,
+        "check_interval_hours": 24,
+        # Whether the web interface may install updates.  The interface has no
+        # password, so this is genuinely a security switch: turning it off
+        # leaves "bonbridge update" over SSH as the only way in.
+        "allow_web": True,
     },
     "logging": {
         "level": "INFO",

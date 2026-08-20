@@ -39,6 +39,12 @@ SPOOL_DIR: Path = STATE_DIR / "spool"
 #: Log directory (the daemon also logs to journald when run under systemd).
 LOG_DIR: Path = _env_path("BONBRIDGE_LOG_DIR", Path("/var/log/bonbridge"))
 
+#: Working area for software updates: downloads, unpacked trees, backups.
+UPDATE_DIR: Path = STATE_DIR / "updates"
+
+#: Snapshots of the previous installation, used by ``bonbridge update --rollback``.
+BACKUP_DIR: Path = STATE_DIR / "backups"
+
 #: Vendored third-party data (escpos-printer-db, zj-58).
 VENDOR_DIR: Path = _env_path("BONBRIDGE_VENDOR_DIR", ROOT_DIR / "vendor")
 
@@ -54,5 +60,5 @@ DOCS_DIR: Path = _env_path("BONBRIDGE_DOCS_DIR", ROOT_DIR / "docs")
 
 def ensure_runtime_dirs() -> None:
     """Create the writable directories the daemon needs."""
-    for directory in (CONFIG_DIR, STATE_DIR, SPOOL_DIR, LOG_DIR):
+    for directory in (CONFIG_DIR, STATE_DIR, SPOOL_DIR, LOG_DIR, UPDATE_DIR, BACKUP_DIR):
         directory.mkdir(parents=True, exist_ok=True)

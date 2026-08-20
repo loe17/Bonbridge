@@ -237,6 +237,20 @@ Prüfen:
 ss -tlnp | grep -E ':(9100|8080|631)'
 ```
 
+## „Der Drucker druckt, aber das Modell wird nicht erkannt"
+
+Steht statt des Modells ein Sammelprofil (`generic-80mm`), sind Zeilenbreite,
+Schriftart und Funktionsliste geraten. Ursachen und Abhilfe stehen in
+[10-updates.md](10-updates.md#wenn-kein-modell-erkannt-wird). Kurzfassung:
+*Neu erkennen* drücken, Anschlussart auf `usb` (libusb) stellen, oder das
+Profil von Hand auswählen.
+
+## Netzwerkausfall
+
+Wenn nichts mehr gedruckt wird, ist oft nicht der Drucker schuld, sondern das
+Netzwerk. BonBridge druckt dann von sich aus einen Hinweiszettel – siehe
+[10-updates.md](10-updates.md#netzwerkberwachung).
+
 ## Neu installieren / aktualisieren
 
 ```bash

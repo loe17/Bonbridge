@@ -4,6 +4,86 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-08-20
+
+### Added
+
+- **Software updates, three ways in, one installation path.** `bonbridge update`
+  on the console checks GitHub, shows the release notes, asks once and installs
+  with live output. The web interface does the same with a confirmation dialog
+  and the installer output streamed into the page. For devices with no internet
+  access, a release archive can be uploaded and installed instead. All three end
+  in the repository's own `install.sh` - there is no second installation
+  mechanism that could drift apart from the first.
+  - Only published releases/tags are offered, never the moving `main` branch.
+    A pushed git tag is enough: when a repository has no GitHub *release*
+    entries, the tag list is used instead.
+  - The previous installation is packed into `/var/lib/bonbridge/backups/`
+    before anything is replaced. `bonbridge update --rollback` puts it back.
+  - Uploaded archives are unpacked and validated *before* installing: they must
+    contain `install.sh`, `src/bonbridge/` and `VERSION`, and no archive member
+    may escape the target directory.
+  - `update.allow_web` (default on) is a real security switch. The web interface
+    has no password, so installing software through it is a genuine decision;
+    turning it off leaves `sudo bonbridge update` over SSH as the only way in.
+  - Under systemd the installer runs as its own transient unit, because
+    `systemctl restart bonbridge` would otherwise kill the process doing the
+    installing - it is a child of the service being restarted.
+- **Network watchdog with fault receipts.** When the device loses its network
+  connection the POS application simply stops printing, and the usual diagnosis
+  is "the printer is broken". The printer is fine and still reachable over USB,
+  so it now prints a slip saying what actually happened and what to check - at
+  start-up without a network, on an outage, and again when the connection
+  returns (carrying the possibly changed IP address).
+  - Link state is read straight from `/sys/class/net`, with no helper process.
+  - A changed state must survive two consecutive checks by default, so a brief
+    Wi-Fi roam does not produce a slip.
+  - Nothing is printed when no printer is connected: a spooled fault slip that
+    surfaces days later, out of context, helps nobody.
+  - Interval, on/off and the optional gateway ping are configurable in the web
+    interface; which printer reports an outage is a per-printer option.
+- **Printing images from the web interface**, with a preview that is not a
+  simulation: the device rasterises the file and sends back exactly the bitmap
+  it would print, so a logo that turns into a black block after thresholding is
+  visible before it costs paper. PNG, JPG, BMP, GIF and WebP; dithering or a
+  hard threshold, scaling and inversion. PDF is refused with an explanation
+  rather than a stack trace.
+- New documentation chapter **10 - Updates, network watchdog, maintenance** in
+  German and English.
+
+### Fixed
+
+- **Collapsed sections no longer spring open again.** The overview re-renders
+  every five seconds, and every re-render rebuilt the health panels in their
+  default state - so collapsing one lasted at most five seconds. Open/closed
+  state is now remembered per block and survives both the refresh and a page
+  reload.
+- **The automatic refresh no longer discards what you are typing.** On the
+  Features tab, changing a dropdown and not saving within five seconds silently
+  lost the change. The refresh now pauses for a tab that holds unsaved edits.
+- **Printers were identified as generic even when the model was known.** Two
+  causes, both fixed:
+  - The IEEE-1284 device ID (`MFG:EPSON;MDL:TM-T88V;...`) was collected but
+    never matched against. For a printer reached through `/dev/usb/lpN` that is
+    often the *only* place the model name appears, so those connections always
+    fell back to the generic profile. The identification now also uses the
+    IEEE-1284 ID and any readable `GS I` reply.
+  - With libusb, the descriptor strings were read *after* the interface had been
+    claimed, where a second control transfer frequently fails and silently
+    returned empty strings. They are now read before the claim.
+  - When identification really is impossible, that is now said out loud: the
+    printer's status reports the generic profile as a warning and lists which
+    identifiers could be read at all, instead of quietly guessing.
+- Long diagnostics output (command output, status and identity JSON, discovery
+  hexdumps) is collapsible instead of filling the page.
+
+### Changed
+
+- `python3-pil` is installed by default (needed for image printing). If it
+  cannot be installed the rest still installs and the interface says how to add
+  it later.
+- Request body limit raised from 8 MiB to 48 MiB for uploads.
+
 ## [1.1.2] - 2026-08-19
 
 Support for very old boards - a Raspberry Pi 1 or the original Pi Zero (ARMv6,
@@ -277,6 +357,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.2.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.2.0
 [1.1.2]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.2
 [1.1.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.1
 [1.1.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.0
