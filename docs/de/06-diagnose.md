@@ -253,6 +253,39 @@ Funktionen als `0x0000`** auf, kommt die App weiter als bisher — dann fehlt nu
 noch eine Vorlage. Bleibt es bei einer einzigen, ständig wiederholten Anfrage,
 lehnt die App die Antwort selbst ab.
 
+### Zwei Dinge, die von außen wie „keine Antwort" aussehen
+
+**1. Die Antwort verlässt die falsche Schnittstelle.** Die Suche kommt als
+Broadcast an. Hängt das Gerät gleichzeitig per LAN *und* WLAN im selben Netz,
+entscheidet ohne weiteres Zutun die Routing-Tabelle, über welche Schnittstelle
+die Antwort hinausgeht — möglicherweise nicht die, auf der die Anfrage kam. Die
+App sieht dann nichts, obwohl BonBridge „beantwortet" protokolliert.
+
+Seit 1.3.3 fragt BonBridge den Kernel, **auf welcher lokalen Adresse** eine
+Anfrage eingegangen ist, und schickt die Antwort genau von dort zurück. Im
+Protokoll steht das jetzt mit: `192.168.178.113:51441 → 192.168.178.50` — links
+der Absender, rechts die eigene Adresse, die das Paket entgegengenommen hat.
+
+Steht dort ein Warnhinweis, dass der Kernel diese Information nicht liefert,
+und hat das Gerät LAN und WLAN gleichzeitig aktiv: **eine der beiden
+Verbindungen abschalten.** Das ist ohnehin sinnvoll, weil sonst auch die
+IP-Adresse wechseln kann.
+
+**2. Windows sucht ganz anders.** Wer zum Gegentest unter Windows „Drucker
+hinzufügen" benutzt, testet **nicht** dasselbe. Windows sucht Netzwerkdrucker
+über **WSD (WS-Discovery)** — SOAP-Nachrichten per Multicast an
+`239.255.255.250` auf **UDP 3702**. Mit der Epson-Suche hat das nichts zu tun.
+
+BonBridge beantwortet WSD **nicht** (dafür wäre ein vollständiges
+DPWS-Druckerprofil mit HTTP-Metadatendienst nötig — ein eigenes Projekt).
+Es *protokolliert* die Anfragen aber seit 1.3.3 mit, damit sichtbar ist, dass
+sie ankommen. Dass Windows den Drucker nicht findet, ist also erwartet und sagt
+nichts über die Epson-Suche aus.
+
+Unter Windows funktioniert der Drucker trotzdem: **Drucker hinzufügen → „Der
+gesuchte Drucker ist nicht aufgeführt" → TCP/IP-Port → IP-Adresse, Typ RAW,
+Port 9100.**
+
 ### Hersteller und Modell, die angekündigt werden### Hersteller und Modell, die angekündigt werden
 
 Kassen-Apps, die gezielt nach **Epson**-Druckern suchen, filtern nach

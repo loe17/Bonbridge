@@ -4,6 +4,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] - 2026-08-22
+
+Two ways a reply can be sent and still never arrive.
+
+### Fixed
+
+- **The reply could leave through the wrong network interface.** The Epson
+  search arrives as a broadcast. On a device that is on the same network over
+  Ethernet *and* Wi-Fi, the routing table decided which interface the answer
+  went out of - possibly not the one the request came in on, and with a source
+  address the app never sent anything to. BonBridge now asks the kernel which
+  local address received each request (`IP_PKTINFO`) and pins the reply to
+  exactly that address and interface. The receiving address is recorded per
+  probe and shown in the log as `sender → our address`.
+  When the kernel does not provide it, the diagnostics say so instead of
+  pretending the reply is fine.
+- **The passive listeners on multicast ports never received anything.** SSDP
+  (1900) was bound but the multicast group was never joined, so the kernel
+  never delivered those datagrams - the listener looked healthy and saw
+  nothing. Groups are now joined for 1900, 3702 and 5353.
+
+### Added
+
+- **UDP 3702 (WS-Discovery) is watched.** That is what Windows uses for "add a
+  network printer" - a completely different mechanism from the Epson search.
+  BonBridge does not answer it (a full DPWS print profile is a project of its
+  own), but the attempts are now visible in the log, so a Windows cross-check
+  can no longer be mistaken for evidence about the Epson search.
+- The README documents the update and uninstall commands, including `--purge`.
+- Documentation on both effects, and on adding the printer from Windows the way
+  that does work: TCP/IP port, RAW, 9100.
+
 ## [1.3.2] - 2026-08-22
 
 The ENPC header was misread. It has eight fields, not two.
@@ -529,6 +561,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.3.3]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.3
 [1.3.2]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.2
 [1.3.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.1
 [1.3.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.0

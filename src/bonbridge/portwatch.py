@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 #: rather than just printing a number.
 PORT_NAMES = {
     80: ("HTTP", "Webseite des Druckers / printer web page"),
+    3702: ("WSD", "Windows-Druckersuche / Windows printer discovery"),
     161: ("SNMP", "Statusabfrage / status query"),
     515: ("LPD/LPR", "Druckauftrag / print job"),
     631: ("IPP", "Internet Printing Protocol / Internet Printing Protocol"),
@@ -40,10 +41,23 @@ PORT_NAMES = {
     9100: ("RAW", "JetDirect / ESC-POS"),
 }
 
-#: Ports worth watching by default: the ones an Epson-aware app might try and
-#: that BonBridge does not already answer itself.
+#: Ports worth watching by default: the ones a printer-aware client might try
+#: and that BonBridge does not already answer itself.  3702 is what Windows
+#: uses for "add a network printer" (WS-Discovery), which is a completely
+#: different mechanism from the Epson search - worth seeing in the log so the
+#: two are not confused.
 DEFAULT_TCP = (631, 8008)
-DEFAULT_UDP = (1900,)
+DEFAULT_UDP = (1900, 3702)
+
+#: Multicast groups that have to be joined before anything arrives.  Binding
+#: the port alone is not enough for these: without joining the group the
+#: kernel never delivers the datagrams, and the listener would silently see
+#: nothing while looking like it works.
+MULTICAST_GROUPS = {
+    1900: "239.255.255.250",  # SSDP / UPnP
+    3702: "239.255.255.250",  # WS-Discovery (Windows printer search)
+    5353: "224.0.0.251",      # mDNS
+}
 
 
 def describe_port(port: int) -> str:
@@ -83,6 +97,7 @@ class PortWatcher(threading.Thread):
         self.protocol = protocol
         self.bind = bind
         self.hits = 0
+        self.multicast_group = ""
         self.last_error: Optional[str] = None
         self._server: Optional[_ThreadingTCPServer] = None
         self._sock: Optional[socket.socket] = None
@@ -126,6 +141,20 @@ class PortWatcher(threading.Thread):
             self.last_error = str(exc)
             log.info("Port watch cannot bind udp/%s: %s", self.port, exc)
             return
+
+        group = MULTICAST_GROUPS.get(self.port)
+        if group:
+            try:
+                self._sock.setsockopt(
+                    socket.IPPROTO_IP,
+                    socket.IP_ADD_MEMBERSHIP,
+                    socket.inet_aton(group) + socket.inet_aton("0.0.0.0"),
+                )
+                self.multicast_group = group
+            except OSError as exc:
+                # Not fatal: unicast probes are still recorded.
+                log.info("Cannot join %s on udp/%s: %s", group, self.port, exc)
+
         log.info("Watching udp/%s (%s)", self.port, describe_port(self.port))
         while not self._stop_event.is_set():
             try:
@@ -218,6 +247,7 @@ class PortWatch:
                     watcher.port, ("", "nur mitgehört / listening only")
                 )[1],
                 "listening": watcher.listening,
+                "multicast": watcher.multicast_group,
                 "hits": watcher.hits,
                 "error": watcher.last_error,
             }

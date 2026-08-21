@@ -70,6 +70,7 @@ from __future__ import annotations
 import logging
 import socket
 import struct
+import sys
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -77,6 +78,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 ENPC_PORT = 3289
+
+#: ``IP_PKTINFO`` from ``<linux/in.h>``.  Python does not export the constant on
+#: every build, so the numeric value is used as a fallback - guarded by a
+#: platform check, because 8 means something else on BSD and macOS.
+IP_PKTINFO = getattr(socket, "IP_PKTINFO", 8 if sys.platform.startswith("linux") else None)
 
 MAGIC_PREFIX = b"EPSON"
 
@@ -473,7 +479,9 @@ class EnpcResponder(threading.Thread):
         self._local_cache: Optional[set] = None
         #: Position in REPLY_CANDIDATES per peer, for ``cycle`` mode.
         self._cycle: Dict[str, int] = {}
+        self._pktinfo = False
         self.last_candidate = ""
+        self.last_local = ""
 
         self.requests = 0
         self.replies = 0
@@ -491,6 +499,18 @@ class EnpcResponder(threading.Thread):
                 self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             except OSError:
                 pass
+            # Ask the kernel to tell us *which* local address a datagram was
+            # delivered to.  The search arrives as a broadcast, and on a device
+            # with both Ethernet and Wi-Fi connected the reply would otherwise
+            # leave through whichever interface the routing table prefers -
+            # possibly not the one the app is on.  See _send().
+            self._pktinfo = False
+            if IP_PKTINFO is not None:
+                try:
+                    self._sock.setsockopt(socket.IPPROTO_IP, IP_PKTINFO, 1)
+                    self._pktinfo = True
+                except OSError as exc:
+                    log.info("IP_PKTINFO unavailable, replies follow the routing table: %s", exc)
             self._sock.bind((self.bind, self.port))
             self._sock.settimeout(0.5)
         except OSError as exc:
@@ -501,14 +521,16 @@ class EnpcResponder(threading.Thread):
         log.info("ENPC discovery responder listening on %s:%s", self.bind, self.port)
         while not self._stop_event.is_set():
             try:
-                data, peer = self._sock.recvfrom(4096)
+                data, peer, local = self._receive()
             except socket.timeout:
                 continue
             except OSError as exc:
                 if not self._stop_event.is_set():
                     log.debug("ENPC receive failed: %s", exc)
                 continue
-            self._handle_datagram(data, peer)
+            if data is None:
+                continue
+            self._handle_datagram(data, peer, local)
 
         try:
             if self._sock:
@@ -518,10 +540,37 @@ class EnpcResponder(threading.Thread):
 
     # ------------------------------------------------------------------
 
-    def _handle_datagram(self, data: bytes, peer: tuple) -> None:
+    def _receive(self) -> Tuple[Optional[bytes], tuple, Dict[str, Any]]:
+        """One datagram, plus which local address and interface received it."""
+        assert self._sock is not None
+        if not self._pktinfo:
+            data, peer = self._sock.recvfrom(4096)
+            return data, peer, {}
+
+        data, ancillary, _flags, peer = self._sock.recvmsg(4096, socket.CMSG_SPACE(64))
+        local: Dict[str, Any] = {}
+        for level, kind, payload in ancillary:
+            if level != socket.IPPROTO_IP or kind != IP_PKTINFO:
+                continue
+            # struct in_pktinfo { int ipi_ifindex; struct in_addr ipi_spec_dst;
+            #                     struct in_addr ipi_addr; }
+            if len(payload) >= 12:
+                index, spec_dst, destination = struct.unpack("I4s4s", payload[:12])
+                local = {
+                    "ifindex": index,
+                    "address": socket.inet_ntoa(spec_dst),
+                    "sent_to": socket.inet_ntoa(destination),
+                }
+        return data, peer, local
+
+    def _handle_datagram(
+        self, data: bytes, peer: tuple, local: Optional[Dict[str, Any]] = None
+    ) -> None:
         frame = parse_frame(data)
+        local = local or {}
         peer_text = f"{peer[0]}:{peer[1]}"
         self.last_peer = peer_text
+        self.last_local = str(local.get("address") or "")
         recognised = frame is not None and is_request(frame["magic"])
 
         entry: Dict[str, Any] = {
@@ -537,6 +586,8 @@ class EnpcResponder(threading.Thread):
             "answered": False,
             "reply_hexdump": "",
             "summary": "",
+            "local": str(local.get("address") or ""),
+            "sent_to": str(local.get("sent_to") or ""),
         }
 
         with self._lock:
@@ -563,7 +614,7 @@ class EnpcResponder(threading.Thread):
 
         sent_to: List[str] = []
         for reply in replies:
-            sent_to.extend(self._send(reply, peer))
+            sent_to.extend(self._send(reply, peer, local))
         entry["answered"] = bool(sent_to)
         entry["reply_targets"] = sent_to
         self._remember(entry, data)
@@ -594,23 +645,49 @@ class EnpcResponder(threading.Thread):
             self._local_cache = addresses
         return self._local_cache
 
-    def _send(self, reply: bytes, peer: tuple) -> List[str]:
-        """Answer the source port *and* port 3289.
+    def _send(
+        self, reply: bytes, peer: tuple, local: Optional[Dict[str, Any]] = None
+    ) -> List[str]:
+        """Answer the source port *and* port 3289, from the right interface.
 
         Some clients broadcast from an ephemeral port but listen for the answer
         on 3289 instead.  Sending to both costs one extra datagram and removes a
         whole class of "no devices found" failures.  The second datagram is
         skipped when the peer is this machine, otherwise we would answer our
         own socket and clutter the probe log.
+
+        The interface matters as much as the port.  The search arrives as a
+        broadcast; on a device with Ethernet *and* Wi-Fi up on the same network
+        the reply would otherwise leave through whichever interface the routing
+        table happens to prefer, with a source address the app never sent
+        anything to.  When the kernel told us which local address received the
+        request (IP_PKTINFO), the reply is pinned to exactly that one.
         """
         targets = []
         candidates = [(peer[0], peer[1])]
         if peer[1] != self.port and peer[0] not in self._local_addresses():
             candidates.append((peer[0], self.port))
+
+        ancillary = []
+        if local and local.get("address"):
+            try:
+                packed = struct.pack(
+                    "I4s4s",
+                    int(local.get("ifindex") or 0),
+                    socket.inet_aton(local["address"]),
+                    b"\x00\x00\x00\x00",
+                )
+                ancillary = [(socket.IPPROTO_IP, IP_PKTINFO, packed)]
+            except (OSError, struct.error) as exc:
+                log.debug("cannot pin the reply to %s: %s", local, exc)
+
         for address in candidates:
             try:
                 assert self._sock is not None
-                self._sock.sendto(reply, address)
+                if ancillary:
+                    self._sock.sendmsg([reply], ancillary, 0, address)
+                else:
+                    self._sock.sendto(reply, address)
                 targets.append(f"{address[0]}:{address[1]}")
             except OSError as exc:
                 log.debug("ENPC reply to %s failed: %s", address, exc)
@@ -716,6 +793,8 @@ class EnpcResponder(threading.Thread):
                 answered=entry["answered"],
                 summary=entry.get("summary", ""),
                 candidate=entry.get("candidate", ""),
+                local=entry.get("local", ""),
+                sent_to=entry.get("sent_to", ""),
             )
         if not self.log_probes:
             return
@@ -741,6 +820,8 @@ class EnpcResponder(threading.Thread):
                 "probes": list(self.probes),
                 "reply_style": self.reply_style,
                 "last_candidate": self.last_candidate,
+                "last_local": self.last_local,
+                "pinned_replies": self._pktinfo,
                 "candidates": [
                     {"id": c["id"], "note_de": c["de"], "note_en": c["en"]}
                     for c in REPLY_CANDIDATES

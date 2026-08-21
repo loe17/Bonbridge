@@ -121,6 +121,7 @@ const I18N = {
     'di.enpcReply.all': 'alle auf einmal senden',
     'di.enpcReplyHelp': 'Die App wiederholt ihre Suche alle paar Sekunden. Im Modus „durchprobieren“ bekommt jede Wiederholung die nächste Antwortform — eine Suche testet damit alle durch. Taucht der Drucker auf, steht unten in der Liste, welche Form zuletzt gesendet wurde; die dann hier fest einstellen.',
     'di.lastCandidate': 'zuletzt gesendet',
+    'di.notPinned': 'Dieser Kernel liefert nicht mit, über welche Schnittstelle eine Anfrage kam. Antworten folgen deshalb der Routing-Tabelle — bei Geräten mit LAN und WLAN gleichzeitig kann die Antwort dann die falsche Schnittstelle nehmen.',
     'di.candidateList': 'Welche Antwortformen es gibt', 'di.candidate': 'Form',
     'di.snmpOn': 'SNMP beantworten (UDP 161)',
     'di.lpdOn': 'LPD/LPR beantworten (TCP 515)',
@@ -292,6 +293,7 @@ const I18N = {
     'di.enpcReply.all': 'send all at once',
     'di.enpcReplyHelp': 'The app repeats its search every few seconds. In "try each in turn" mode every retry gets the next reply shape, so one search tries them all. When the printer appears, the list below shows which shape was sent last - pin that one here.',
     'di.lastCandidate': 'last sent',
+    'di.notPinned': 'This kernel does not report which interface a request arrived on, so replies follow the routing table. On a device with Ethernet and Wi-Fi up at once the reply may take the wrong interface.',
     'di.candidateList': 'The available reply shapes', 'di.candidate': 'Shape',
     'di.snmpOn': 'Answer SNMP (UDP 161)',
     'di.lpdOn': 'Answer LPD/LPR (TCP 515)',
@@ -1353,6 +1355,9 @@ async function renderDiag() {
     '<div class="fieldhelp">' + esc(t('di.enpcReplyHelp')) +
     (discovery.enpc_last_candidate
       ? ' ' + t('di.lastCandidate') + ': <b>' + esc(discovery.enpc_last_candidate) + '</b>'
+      : '') +
+    ((discovery.enpc || {}).pinned_replies === false
+      ? '<br>⚠ ' + esc(t('di.notPinned'))
       : '') + '</div>' +
     foldable('di.candidates', t('di.candidateList'),
       '<table><tr><th>#</th><th>' + t('di.candidate') + '</th><th></th></tr>' +
@@ -1379,7 +1384,8 @@ async function renderDiag() {
   } else {
     probes.forEach((probe, index) => {
       const head = '<code>' + esc(probe.protocol) + '</code> · ' + fmtTime(probe.time) + ' · ' +
-        esc(probe.peer) + ' · ' + probe.bytes + ' B · ' +
+        esc(probe.peer) +
+        (probe.local ? ' → ' + esc(probe.local) : '') + ' · ' + probe.bytes + ' B · ' +
         (probe.answered ? t('di.answered') : t('di.notAnswered')) +
         (probe.summary ? ' · ' + esc(probe.summary) : '');
       let body = '<pre>' + esc(probe.hexdump || '(0 B)') + '</pre>';

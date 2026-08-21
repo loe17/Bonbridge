@@ -244,6 +244,36 @@ other than `0x0000`** turn up, the app is getting further than before and only
 a template is missing. If it stays a single, endlessly repeated query, the app
 is rejecting the reply itself.
 
+### Two things that look like "no reply" from the outside
+
+**1. The reply leaves through the wrong interface.** The search arrives as a
+broadcast. If the device is on the same network over Ethernet *and* Wi-Fi at
+once, the routing table decides which interface the reply goes out of - possibly
+not the one the request came in on. The app then sees nothing even though
+BonBridge logs "answered".
+
+Since 1.3.3 BonBridge asks the kernel **which local address** received a
+request and sends the reply from exactly that one. The log now shows it:
+`192.168.178.113:51441 → 192.168.178.50` - sender on the left, our own address
+that accepted the packet on the right.
+
+If a warning says the kernel does not provide that information and the device
+has both Ethernet and Wi-Fi active: **switch one of them off.** That is sensible
+anyway, because otherwise the IP address can change as well.
+
+**2. Windows searches in a completely different way.** Using "Add a printer" on
+Windows as a cross-check does **not** test the same thing. Windows finds network
+printers over **WSD (WS-Discovery)** - SOAP messages multicast to
+`239.255.255.250` on **UDP 3702**. That has nothing to do with the Epson search.
+
+BonBridge does **not** answer WSD (that would need a complete DPWS print device
+profile with an HTTP metadata service - a project of its own). It does *log* the
+requests since 1.3.3, so it is visible that they arrive. Windows not finding the
+printer is therefore expected and says nothing about the Epson search.
+
+The printer still works from Windows: **Add a printer → "The printer that I want
+isn't listed" → TCP/IP port → IP address, type RAW, port 9100.**
+
 ### The manufacturer and model that are announced### The manufacturer and model that are announced
 
 POS apps that search specifically for **Epson** printers filter by manufacturer

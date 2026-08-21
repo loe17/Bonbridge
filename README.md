@@ -42,6 +42,22 @@ POS printing  :  <ip>  port 9100  (RAW / ESC-POS)
 You do not have to hunt for the IP address: **BonBridge prints a slip with its
 own address, the port and the POS settings every time it starts.**
 
+### Update and uninstall
+
+```bash
+sudo bonbridge update              # check for a new version and install it
+sudo bonbridge update --check      # only look, change nothing
+sudo bonbridge update --rollback   # undo the last update
+
+sudo bash /opt/bonbridge/uninstall.sh           # remove, keep the configuration
+sudo bash /opt/bonbridge/uninstall.sh --purge   # remove everything, including
+                                                # /etc/bonbridge and /var/lib/bonbridge
+```
+
+Uninstalling stops and removes the service, the unit files and the program
+directory. CUPS, avahi and the Python packages are left installed, because
+other software may be using them.
+
 ## What it does
 
 * **RAW/JetDirect listener on port 9100** - what POS applications expect.

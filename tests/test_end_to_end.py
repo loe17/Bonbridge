@@ -811,6 +811,33 @@ def main() -> int:
             next(iter(answers))[14:] == b"\x00" * 4,
             "'who is holding' answers with zeroes - the printer is free",
         )
+
+        # The reply has to leave through the interface the request arrived on.
+        # On a device with Ethernet and Wi-Fi up at once, replying through
+        # whichever one the routing table prefers means the app never sees it.
+        enpc_state = get_json("/api/discovery")["discovery"]["enpc"]
+        check(enpc_state.get("pinned_replies") is True,
+              "replies are pinned to the receiving interface (IP_PKTINFO)")
+        check(enpc_state.get("last_local") == "127.0.0.1",
+              f"the log records which local address received the probe "
+              f"(got {enpc_state.get('last_local')!r})")
+        entries = [
+            entry
+            for entry in get_json("/api/discovery")["discovery"]["probes"]
+            if entry["protocol"] == "enpc"
+        ]
+        check(entries and entries[0].get("local") == "127.0.0.1",
+              "each probe records the address it was delivered to")
+
+        # Multicast ports must join their group, or the listener sees nothing
+        # while looking like it works.
+        from bonbridge import portwatch as _portwatch
+
+        check(_portwatch.MULTICAST_GROUPS.get(3702) == "239.255.255.250",
+              "WS-Discovery (Windows printer search) has its multicast group")
+        check(3702 in _portwatch.DEFAULT_UDP, "UDP 3702 is watched by default")
+        check(_portwatch.describe_port(3702).startswith("WSD"),
+              "port 3702 is named as the Windows printer search")
         used = {
             entry.get("candidate")
             for entry in get_json("/api/discovery")["discovery"]["probes"]

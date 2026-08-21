@@ -44,6 +44,22 @@ Kassendruck   :  <ip>  Port 9100  (RAW / ESC-POS)
 Die IP-Adresse musst du nicht suchen: **BonBridge druckt bei jedem Start einen
 Bon mit der eigenen Adresse, dem Port und den Werten fürs Kassensystem.**
 
+### Aktualisieren und deinstallieren
+
+```bash
+sudo bonbridge update              # auf neue Version prüfen und installieren
+sudo bonbridge update --check      # nur nachsehen, nichts ändern
+sudo bonbridge update --rollback   # letztes Update rückgängig machen
+
+sudo bash /opt/bonbridge/uninstall.sh           # entfernen, Konfiguration bleibt
+sudo bash /opt/bonbridge/uninstall.sh --purge   # alles entfernen, inklusive
+                                                # /etc/bonbridge und /var/lib/bonbridge
+```
+
+Die Deinstallation stoppt und entfernt den Dienst, die Unit-Dateien und das
+Programmverzeichnis. CUPS, Avahi und die Python-Pakete bleiben installiert –
+andere Software könnte sie benutzen.
+
 ## Was es tut
 
 * **RAW/JetDirect-Listener auf Port 9100** – genau das, was Kassensysteme erwarten.
