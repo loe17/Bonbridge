@@ -8,5 +8,5 @@ OrderAssist - can print to them.
 See docs/ for the full documentation (German and English).
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __all__ = ["__version__"]

@@ -4,6 +4,75 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-08-21
+
+Being found automatically, taken seriously.
+
+### The problem
+
+A printer is never simply "found" or "not found" - only ever over a particular
+protocol. BonBridge answered exactly one of them (Epson's undocumented ENPC on
+UDP 3289) and was silent on every other, so an app that searches a different
+way found nothing, correctly, because there was nothing to find.
+
+The primary source settles what "everything" means: the technical reference of
+the TM-T88V's own Ethernet board (UB-E04) lists **LPR on 515, RAW on 9100,
+SNMP v1 on 161, ENPC on 3289, mDNS and HTTP**. That is the list a real Epson
+device answers, and now the list BonBridge answers.
+
+### Added
+
+- **SNMP v1 responder on UDP 161**, community `public`, exactly as the UB-E04
+  does. This is the most common printer discovery of all - sweeping a subnet
+  with one query for `sysDescr` - and BonBridge previously ignored it
+  completely. Serves the MIB-II system group, the Host Resources MIB
+  (`hrDeviceDescr`, `hrPrinterStatus`), the Printer MIB
+  (`prtGeneralPrinterName`) and `sysObjectID` under Epson's enterprise arc
+  1.3.6.1.4.1.1248. BER is encoded by hand; no new dependency. Verified against
+  the real `snmpget`/`snmpwalk` clients, including a `GetNext` walk that
+  terminates.
+- **LPD/LPR server on TCP 515** (RFC 1179). Answers queue-status probes, and
+  since the protocol is small enough to implement properly, actually accepts
+  print jobs and forwards them to the printer like a job on 9100.
+- **Passive listeners on IPP (631), ePOS-Device (8008) and SSDP (1900).** These
+  never answer - a half-implemented IPP reply would be worse than silence -
+  but they record who knocked, which is the missing information.
+- **One shared probe log across every protocol**, with sender, hexdump and a
+  summary. One press of "search for printers" in the app now answers the
+  decisive question outright: *which protocol did the app actually speak?*
+  The diagnostics page shows all protocols side by side with the number of
+  probes each has seen.
+- **The announced manufacturer and model are now settable.** Apps that search
+  specifically for Epson printers filter on exactly these strings, so they
+  decide whether the device appears in the list at all. `auto` announces the
+  model that was actually detected on the USB port (e.g. TM-T88V) and only
+  falls back to a default when nothing was detected.
+- **Selectable ENPC reply shape** (`echo` / `epson` / `both`, default `both`).
+  Epson does not publish the reply payload; rather than presenting one guess as
+  fact, BonBridge can send a mirrored and a structured variant in quick
+  succession and log both.
+
+### Changed
+
+- **ENPC now answers every `EPSON<uppercase letter>` request**, not just
+  `EPSONQ` and `EPSONC`. The UB-E04 reference lists the packet types Probe,
+  Initialize, Query, Setup and Notify, so hard-coding two of them was a guess
+  that could only be wrong. The reply carries the matching lower-case letter.
+- **mDNS announces `_printer._tcp` as well as `_pdl-datastream._tcp`**, with an
+  `rp` record. Clients that only browse the classic printer type could not see
+  the device before.
+- Discovery settings are applied by restarting the listeners immediately, so
+  saving them means something without a service restart.
+- The diagnostics page reports discovery as a protocol table rather than a
+  single ENPC counter.
+
+### Notes
+
+The ENPC reply payload is still not verifiable without an original device.
+That is why the emphasis here is on *measurement*: three protocols that are
+fully specified (SNMP, LPD, mDNS) now answer correctly, and for the one that is
+not, the probe log makes the next step concrete instead of speculative.
+
 ## [1.2.0] - 2026-08-20
 
 ### Added
@@ -357,6 +426,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.3.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.0
 [1.2.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.2.0
 [1.1.2]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.2
 [1.1.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.1

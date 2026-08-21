@@ -123,35 +123,67 @@ overview.
 
 ### "The printer does not show up in the automatic search"
 
-The reliable route remains: **add the printer manually by IP address.** The IP
-is on the status slip BonBridge prints at power-up, and in the web interface.
+The reliable route stays: **add the printer manually by IP address.** The IP is
+on the status slip BonBridge prints at power-on, and in the web interface.
 
-BonBridge still tries to appear in the search. POS apps look for Epson printers
-using the **ENPC protocol** (UDP 3289): they broadcast a packet starting with
-`EPSONQ`, printers answer with `EPSONq`. BonBridge answers such packets
-(default: on, switchable under *System*).
+Still, BonBridge should turn up in the search. That starts with one insight:
 
-**Epson does not publish this protocol.** The reply format is based on public
-third-party analysis - without an original device there is no way to guarantee
-the reply is correct. Hence the diagnostics:
+> **"Found" is not a property of a printer but of a protocol.** A real Epson
+> network board (UB-E04) answers four different mechanisms, and every app uses
+> a different one. Serving only one of them makes you invisible to the rest.
 
-**Web interface → Diagnostics → Automatic printer search**
+BonBridge therefore answers **all four**:
 
-It shows how many search requests arrived, from which address, and every one of
-them as a hexdump. That answers the decisive question in a single attempt:
+| Protocol | Port | What apps use it for |
+|---|---|---|
+| **ENPC** | UDP 3289 | The Epson ePOS SDK search. The broadcast starts with `EPSONQ`, devices answer with `EPSONq`. |
+| **SNMP v1** | UDP 161 | The most common printer discovery of all: sweep the whole subnet with one query for `sysDescr`. Community `public`. |
+| **mDNS/Bonjour** | UDP 5353 | Bonjour browsing for `_pdl-datastream._tcp` and `_printer._tcp`. |
+| **LPD/LPR** | TCP 515 | Classic network printing; some apps only check whether the port is open. |
 
-1. Start the search in the POS app.
-2. Look at the diagnostics page.
+On top of that there are **passive listeners** on IPP (631), ePOS-Device (8008)
+and SSDP (1900). These deliberately never answer - a half-baked reply would be
+worse than none - but they record who knocked.
+
+### Finding out which protocol your app uses
+
+One attempt settles it:
+
+1. Open **web interface -> Diagnostics -> Automatic printer search** and press
+   *Clear the list*.
+2. Start the printer search in the POS app.
+3. Reload the diagnostics page.
+
+Exactly the row the app uses counts up in the protocol table. Every single
+request is listed underneath with its sender and a full hexdump.
 
 | Observation | Meaning | Next step |
 |---|---|---|
-| **Requests appear, printer still not listed** | The search reaches the device but our reply does not match. | Copy the hexdump and report it - the format can be corrected from it. |
-| **No requests** | The app does not search via ENPC (or the broadcast never arrives). | Check that the phone and the device are on the same Wi-Fi and that the router does not block broadcasts (guest Wi-Fi, disable "client isolation" / "AP isolation"). If still nothing arrives, the app uses a different mechanism and the manual route is the right one. |
-| **Requests appear but "answered" says no** | The responder is not running or port 3289 is taken. | Check with `ss -ulnp \| grep 3289`. |
+| A row counts up, the printer still does not appear | The protocol is right, the app does not like our reply. | Copy the hexdump and report it - the format can be corrected from it. For ENPC, try switching the *reply shape* first (see below). |
+| **Nothing** counts up | The search packets never reach the device. | Are the phone and the device on the same network? Many routers isolate Wi-Fi clients from each other - turn off "client isolation" / "AP isolation" or the guest network. Broadcasts otherwise never arrive. |
+| A row says **"port in use"** | Another service holds the port. | `ss -ulnp \| grep 3289` or `ss -tlnp \| grep 515`. Common culprits: an installed `snmpd` on 161 or `cupsd` on 631. |
 
-The most common cause of "no requests" is **client isolation on the Wi-Fi**.
-Many routers separate wireless clients from each other, so broadcasts never
-arrive. The printer is still reachable by IP - only the search fails.
+### The manufacturer and model that are announced
+
+POS apps that search specifically for **Epson** printers filter by manufacturer
+name and model. Those two values therefore decide whether the device shows up
+in the list at all - independently of whether the reply technically arrives.
+
+Under *Diagnostics -> Automatic printer search -> What BonBridge calls itself*:
+
+* **Manufacturer** - default `EPSON`. This is a compatibility declaration, the
+  same way a browser can present itself as something else so that a site serves
+  it. There is still a Raspberry Pi inside the box.
+* **Model** - default `auto`: the **actually detected** model of the attached
+  printer is announced (e.g. `TM-T88V`). A fallback only steps in when nothing
+  was detected. Set it by hand if the app expects a particular model.
+* **ENPC reply shape** - Epson does not publish the reply format. The default is
+  *send both*: a mirrored and a structured reply in quick succession. Clients
+  ignore what they do not understand. Only change this if a test suggests
+  otherwise.
+
+Changes take effect immediately - saving restarts the listeners, no service
+restart needed.
 
 ## Understanding the status query
 
@@ -225,7 +257,8 @@ then `sudo systemctl restart bonbridge`.
 Check:
 
 ```bash
-ss -tlnp | grep -E ':(9100|8080|631)'
+ss -tlnp | grep -E ':(9100|8080|515|631)'
+ss -ulnp | grep -E ':(161|3289|5353)'
 ```
 
 ## "The printer prints, but the model is not detected"

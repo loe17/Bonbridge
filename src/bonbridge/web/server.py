@@ -136,7 +136,15 @@ class WebApplication:
                 else:
                     app.config.data[key] = value
             app.save_config()
-            return {"ok": True, "restart_required": True, "config": app.config.as_dict()}
+            # Discovery listeners bind their own ports, so changing them has to
+            # rebind - otherwise "saved" would be a lie until the next reboot.
+            if "discovery" in patch:
+                app.restart_discovery()
+            return {
+                "ok": True,
+                "restart_required": bool({"web", "raw"} & set(patch)),
+                "config": app.config.as_dict(),
+            }
 
         @self.route("GET", r"/api/printers")
         def list_printers(**_: Any) -> Dict[str, Any]:

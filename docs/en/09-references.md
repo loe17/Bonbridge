@@ -138,15 +138,36 @@ bytes, printer prints". Implemented in
 
 Implemented in [`mdns.py`](../../src/bonbridge/mdns.py).
 
-### ENPC (Epson network discovery, UDP 3289) - experimental
+### Discoverability: which protocols an Epson network board speaks
 
-Epson does **not** publish this protocol. The implementation in
-[`discovery.py`](../../src/bonbridge/discovery.py) rests entirely on public
-third-party analysis and is therefore **disabled by default**:
+The authoritative primary source is the technical reference of the TM-T88V's
+interface board. It lists every protocol a real device answers - and therefore
+the list BonBridge reproduces:
 
-* [wes4m: "Reverse Engineering Thermal Printers"](https://wes4m.io/posts/epson_rev/) - frame layout `EPSONQ`/`EPSONq`, function numbers
-* [mike42/escpos-php issue #923: "Need help with ENPC protocol 3289"](https://github.com/mike42/escpos-php/issues/923)
+* [Epson UB-E04 Technical Reference Guide](https://files.support.epson.com/pdf/ube04_/ube04_trg.pdf) - LPR (515), RAW (9100), SNMP v1 (161, community `public`), ENPC (3289, packet types Probe/Initialize/Query/Setup/Notify), mDNS, HTTP
+
+### ENPC (Epson network discovery, UDP 3289) - partly reconstructed
+
+Epson does **not** publish the reply format. The frame layout in
+[`discovery.py`](../../src/bonbridge/discovery.py) rests on public third-party
+analysis, which is why BonBridge can send several reply variants and logs every
+request with a hexdump instead of presenting a guess as fact:
+
+* [wes4m: "Reverse Engineering Thermal Printers"](https://wes4m.io/posts/epson_rev/) - frame layout `EPSONQ`/`EPSONq`, `EPSONC`/`EPSONc`, function numbers
+* [mike42/escpos-php issue #923: "Need help with ENPC protocol 3289"](https://github.com/mike42/escpos-php/issues/923) - the observed 16-byte ePOS SDK search packet
 * [Epson ePOS SDK: `Discovery.start`](https://download4.epson.biz/sec_pubs/pos/reference_en/epos_and/ref_epos_sdk_and_en_discoveryclass_start.html) - the official client side
+
+### SNMP (UDP 161)
+
+Fully and publicly specified; the implementation in
+[`snmp.py`](../../src/bonbridge/snmp.py) encodes BER by hand so that `pysnmp`
+is not needed:
+
+* [RFC 1157 - Simple Network Management Protocol (v1)](https://datatracker.ietf.org/doc/html/rfc1157)
+* [RFC 1213 - MIB-II](https://datatracker.ietf.org/doc/html/rfc1213) (`sysDescr`, `sysName`, `sysObjectID`)
+* [RFC 2790 - Host Resources MIB](https://datatracker.ietf.org/doc/html/rfc2790) (`hrDeviceDescr`, `hrPrinterStatus`)
+* [RFC 3805 - Printer MIB v2](https://datatracker.ietf.org/doc/html/rfc3805) (`prtGeneralPrinterName`)
+* Epson's IANA enterprise number is **1248** -> `sysObjectID = 1.3.6.1.4.1.1248`
 
 ### IEEE 1284 device ID
 

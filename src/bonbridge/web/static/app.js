@@ -102,6 +102,29 @@ const I18N = {
     'sy.label': 'Gerätebezeichnung', 'sy.language': 'Sprache der Oberfläche',
     'sy.openDocs': 'Dokumentation öffnen',
 
+    'di.discoveryIntro': 'Ein Drucker wird nicht „gefunden“ oder „nicht gefunden“ — sondern immer nur über ein bestimmtes Protokoll. BonBridge beantwortet deshalb alle gängigen und protokolliert jede eingehende Anfrage mit.',
+    'di.probesSeen': '%s Suchanfragen empfangen',
+    'di.noProbesYet': 'Noch keine Suchanfrage empfangen',
+    'di.testHint': 'So findest du es heraus: Suchanfragen unten leeren, in der Kassen-App die Druckersuche starten, dann diese Seite neu laden. Was in der Tabelle hochzählt, ist das Protokoll, das die App benutzt.',
+    'di.protocol': 'Protokoll', 'di.transport': 'Port', 'di.state': 'Zustand',
+    'di.off': 'aus', 'di.blocked': 'Port belegt', 'di.answering': 'antwortet', 'di.watching': 'nur mithören',
+    'di.notAnswered': 'nicht beantwortet', 'di.reply': 'Gesendete Antwort',
+    'di.answeringHint': 'BonBridge antwortet aktiv auf %s Protokolle. „Nur mithören“ heißt: Anfragen werden protokolliert, aber nicht beantwortet — eine halbgare Antwort wäre schlimmer als keine.',
+    'di.identity': 'Wie sich BonBridge im Netz nennt',
+    'di.identityHelp': 'Kassen-Apps, die gezielt nach Epson-Druckern suchen, filtern nach Hersteller und Modell. Diese beiden Werte entscheiden also, ob das Gerät in der Liste der App überhaupt auftaucht.',
+    'di.advVendor': 'Hersteller', 'di.advModel': 'Modell',
+    'di.advNow': 'Aktuell angekündigt',
+    'di.advSource.detected': 'erkanntes Modell', 'di.advSource.manual': 'von Hand gesetzt',
+    'di.advSource.fallback': 'Rückfallwert, kein Modell erkannt',
+    'di.enpcReply': 'ENPC-Antwortform',
+    'di.enpcReply.both': 'beide senden (empfohlen)', 'di.enpcReply.echo': 'nur Spiegelung',
+    'di.enpcReply.epson': 'nur strukturiert',
+    'di.snmpOn': 'SNMP beantworten (UDP 161)',
+    'di.lpdOn': 'LPD/LPR beantworten (TCP 515)',
+    'di.watchOn': 'Weitere Ports mithören (IPP, ePOS, SSDP)',
+    'di.restartNeeded': 'die Lauschposten wurden neu gestartet',
+    'di.saveHint': 'Beim Speichern werden die Lauschposten sofort neu gestartet — kein Neustart des Dienstes nötig.',
+
     'nw.title': 'Netzwerküberwachung',
     'nw.explain': 'BonBridge prüft regelmäßig, ob dieses Gerät überhaupt im Netz ist. Fällt die Verbindung aus, druckt der Drucker einen Hinweiszettel — er hängt ja an USB und funktioniert weiter. Das erspart die Fehlersuche am falschen Ende.',
     'nw.online': 'Netzwerk in Ordnung', 'nw.offline': 'Keine Netzwerkverbindung',
@@ -247,6 +270,29 @@ const I18N = {
     'sy.label': 'Device label', 'sy.language': 'Interface language',
     'sy.openDocs': 'Open the documentation',
 
+    'di.discoveryIntro': 'A printer is never simply "found" or "not found" - only ever over a particular protocol. BonBridge therefore answers all the common ones and records every incoming request.',
+    'di.probesSeen': '%s search requests received',
+    'di.noProbesYet': 'No search request received yet',
+    'di.testHint': 'How to find out: clear the log below, start the printer search in the POS app, then reload this page. Whatever counts up in the table is the protocol the app uses.',
+    'di.protocol': 'Protocol', 'di.transport': 'Port', 'di.state': 'State',
+    'di.off': 'off', 'di.blocked': 'port in use', 'di.answering': 'answering', 'di.watching': 'listening only',
+    'di.notAnswered': 'not answered', 'di.reply': 'Reply sent',
+    'di.answeringHint': 'BonBridge actively answers %s protocols. "Listening only" means requests are logged but not answered - a half-baked reply would be worse than none.',
+    'di.identity': 'What BonBridge calls itself on the network',
+    'di.identityHelp': 'POS apps that search specifically for Epson printers filter by manufacturer and model. These two values therefore decide whether the device shows up in the app list at all.',
+    'di.advVendor': 'Manufacturer', 'di.advModel': 'Model',
+    'di.advNow': 'Currently announced',
+    'di.advSource.detected': 'detected model', 'di.advSource.manual': 'set by hand',
+    'di.advSource.fallback': 'fallback, no model detected',
+    'di.enpcReply': 'ENPC reply shape',
+    'di.enpcReply.both': 'send both (recommended)', 'di.enpcReply.echo': 'mirrored only',
+    'di.enpcReply.epson': 'structured only',
+    'di.snmpOn': 'Answer SNMP (UDP 161)',
+    'di.lpdOn': 'Answer LPD/LPR (TCP 515)',
+    'di.watchOn': 'Listen on further ports (IPP, ePOS, SSDP)',
+    'di.restartNeeded': 'the listeners were restarted',
+    'di.saveHint': 'Saving restarts the listeners straight away - no service restart needed.',
+
     'nw.title': 'Network watchdog',
     'nw.explain': 'BonBridge regularly checks whether this device is on the network at all. If the connection drops, the printer prints a notice - it is attached over USB and keeps working. That saves troubleshooting at the wrong end.',
     'nw.online': 'Network is fine', 'nw.offline': 'No network connection',
@@ -335,6 +381,12 @@ const HELP = {
     'pt.cut': 'Schneidet das Papier nach dem Bon ab, falls der Drucker einen Schneider hat.',
     'pt.drawer': 'Öffnet nach dem Druck die Kassenlade, falls eine angeschlossen ist.',
     'di.raw': 'Sendet Bytes unverändert an den Drucker. Text wird als Text gesendet; reine Hex-Zeichen werden als Bytes interpretiert, z. B. "1B 40" für einen Reset. Nur benutzen, wenn du weißt was du tust.',
+    'di.advVendor': 'Der Herstellername, den BonBridge über ENPC, SNMP und mDNS ankündigt. Kassen-Apps, die nur Epson-Drucker anzeigen, vergleichen genau diesen Text. „EPSON“ ist deshalb der sinnvolle Wert, auch wenn im Gerät ein Raspberry Pi steckt — es ist eine Kompatibilitätsangabe, kein Etikettenschwindel.',
+    'di.advModel': 'Der Modellname, der angekündigt wird. „auto“ nimmt das erkannte Modell des angeschlossenen Druckers (z. B. TM-T88V) und fällt nur dann auf einen Standardwert zurück, wenn nichts erkannt wurde. Von Hand setzen, wenn die App ein bestimmtes Modell erwartet.',
+    'di.enpcReply': 'Epson veröffentlicht das Antwortformat der Druckersuche nicht. „Beide senden“ verschickt zwei Varianten kurz nacheinander — eine gespiegelte und eine strukturierte. Clients ignorieren, was sie nicht verstehen, zwei kleine Pakete kosten nichts. Nur umstellen, wenn ein Test etwas anderes zeigt.',
+    'di.snmpOn': 'Beantwortet Statusabfragen auf UDP 161 wie ein echtes Epson-Netzwerkboard. Viele Suchfunktionen fragen einfach das ganze Subnetz per SNMP ab — ohne Antwort ist das Gerät für sie nicht vorhanden.',
+    'di.lpdOn': 'Nimmt Verbindungen auf TCP 515 an (klassischer Netzwerkdruck). Dient der Auffindbarkeit und erlaubt zusätzlich echtes Drucken per LPR.',
+    'di.watchOn': 'Öffnet zusätzlich passive Lauschposten auf IPP (631), ePOS (8008) und SSDP (1900). Diese antworten nie — sie halten nur fest, wer angeklopft hat. Genau das zeigt, welches Protokoll eine App tatsächlich benutzt.',
     'op.netalert': 'Druckt auf DIESEM Drucker einen Hinweiszettel, wenn das Gerät seine Netzwerkverbindung verliert oder wiederbekommt. Sinnvoll, weil das Kassensystem dann nicht mehr drucken kann und sonst niemand erfährt, warum. Ist gerade kein Drucker verbunden, wird nichts gedruckt und auch nichts nachgeholt.',
     'nw.interval': 'Wie oft der Netzwerkzustand geprüft wird. 60 Sekunden ist ein guter Kompromiss: schnell genug, um einen Ausfall früh zu bemerken, sparsam genug für einen kleinen Raspberry Pi. Minimum 10 Sekunden.',
     'nw.confirmations': 'Wie oft der neue Zustand hintereinander bestätigt werden muss, bevor gedruckt wird. Bei 2 führt ein kurzer WLAN-Wechsel nicht zu einem Zettel. Bei 1 wird sofort gemeldet.',
@@ -384,6 +436,12 @@ const HELP = {
     'pt.cut': 'Cuts the paper after the receipt, if the printer has a cutter.',
     'pt.drawer': 'Opens the cash drawer after printing, if one is connected.',
     'di.raw': 'Sends bytes to the printer unchanged. Text is sent as text; pure hex characters are interpreted as bytes, e.g. "1B 40" for a reset. Only use this if you know what you are doing.',
+    'di.advVendor': 'The manufacturer name BonBridge announces over ENPC, SNMP and mDNS. POS apps that only list Epson printers compare exactly this text. "EPSON" is therefore the sensible value even though a Raspberry Pi is inside - it is a compatibility declaration, not a disguise.',
+    'di.advModel': 'The model name that is announced. "auto" uses the detected model of the attached printer (e.g. TM-T88V) and only falls back to a default when nothing was detected. Set it by hand if the app expects a particular model.',
+    'di.enpcReply': 'Epson does not publish the reply format of the printer search. "Send both" sends two variants in quick succession - one mirrored, one structured. Clients ignore what they do not understand, and two small packets cost nothing. Only change this if a test shows otherwise.',
+    'di.snmpOn': 'Answers status queries on UDP 161 the way a real Epson network board does. Many search functions simply sweep the whole subnet with SNMP - without an answer the device does not exist for them.',
+    'di.lpdOn': 'Accepts connections on TCP 515 (classic network printing). Helps with discovery and additionally allows real LPR printing.',
+    'di.watchOn': 'Additionally opens passive listeners on IPP (631), ePOS (8008) and SSDP (1900). These never answer - they only record who knocked. That is precisely what reveals which protocol an app really uses.',
     'op.netalert': 'Prints a notice on THIS printer when the device loses or regains its network connection. Useful because the POS application cannot print then, and otherwise nobody learns why. If no printer is connected at that moment nothing is printed and nothing is caught up later.',
     'nw.interval': 'How often the network state is checked. 60 seconds is a good compromise: quick enough to notice an outage early, cheap enough for a small Raspberry Pi. Minimum is 10 seconds.',
     'nw.confirmations': 'How many consecutive checks must agree before a slip is printed. At 2 a brief Wi-Fi roam does not produce one. At 1 it is reported immediately.',
@@ -1218,6 +1276,7 @@ async function renderDiag() {
   try {
     diag = await api('/api/diagnostics');
     discovery = (await api('/api/discovery')).discovery;
+    STATE.discoveryConfig = (await api('/api/config')).config.discovery || {};
   } catch (e) { root.innerHTML = '<div class="card">' + t('common.error') + ': ' + esc(e.message) + '</div>'; return; }
 
   let html = '<div class="card"><h2>' + t('di.title') + '</h2><div class="btnbar">' +
@@ -1232,26 +1291,86 @@ async function renderDiag() {
   });
   html += '</div>';
 
-  /* discovery */
-  const enpc = discovery.enpc || {};
-  html += '<div class="card"><h2>' + t('di.discovery') + '</h2><div class="kv">' +
-    kv('mDNS', discovery.mdns ? (discovery.mdns_active ? 'aktiv (zeroconf)' : 'Avahi') : t('common.no')) +
-    kv('ENPC (UDP 3289)', enpc.enabled ? (enpc.listening ? t('common.yes') : t('common.error')) : t('common.no')) +
-    kv(t('di.received'), String(enpc.requests || 0)) +
-    kv(t('di.answered'), String(enpc.replies || 0)) +
-    '</div><p class="muted" style="font-size:.82rem">' + esc(bi(enpc, 'note')) + '</p>' +
-    '<h3>' + t('di.probes') + '</h3>';
-  if (!(enpc.probes || []).length) {
+  /* discovery: every protocol side by side, plus what actually arrived */
+  const adv = discovery.advertised || {};
+  const protocols = discovery.protocols || [];
+  const answering = protocols.filter((p) => p.enabled && p.listening && p.answers).length;
+
+  html += '<div class="card"><h2>' + t('di.discovery') + '</h2>' +
+    '<p class="fieldhelp">' + esc(t('di.discoveryIntro')) + '</p>' +
+    '<div class="big">' +
+    (discovery.total_requests
+      ? '<span class="dot ok"></span>' + t('di.probesSeen').replace('%s', discovery.total_requests)
+      : '<span class="dot unknown"></span>' + t('di.noProbesYet')) +
+    '</div>' +
+    '<p class="fieldhelp">' + esc(t('di.testHint')) + '</p>';
+
+  html += '<table><tr><th>' + t('di.protocol') + '</th><th>' + t('di.transport') +
+    '</th><th>' + t('di.state') + '</th><th>' + t('di.received') + '</th></tr>';
+  protocols.forEach((entry) => {
+    let state;
+    if (!entry.enabled) state = '<span class="muted">' + t('di.off') + '</span>';
+    else if (!entry.listening) state = '<span class="dot error"></span>' + t('di.blocked');
+    else if (entry.answers) state = '<span class="dot ok"></span>' + t('di.answering');
+    else state = '<span class="dot warn"></span>' + t('di.watching');
+    html += '<tr><td><b>' + esc(entry.label) + '</b><br><span class="muted">' +
+      esc(LANG === 'de' ? entry.purpose_de : entry.purpose_en) + '</span></td><td><code>' +
+      esc(entry.transport) + '</code></td><td>' + state + '</td><td>' +
+      entry.requests + (entry.answers && entry.replies ? ' / ' + entry.replies + ' ' + t('di.answered') : '') +
+      '</td></tr>';
+  });
+  html += '</table>';
+  html += '<p class="fieldhelp">' + esc(t('di.answeringHint').replace('%s', answering)) + '</p>';
+
+  /* what we call ourselves - this is what an Epson filter matches on */
+  html += '<h3>' + t('di.identity') + '</h3>' +
+    '<p class="fieldhelp">' + esc(t('di.identityHelp')) + '</p>' +
+    '<div class="grid2"><div>' +
+    lbl('di.advVendor', t('di.advVendor')) +
+    '<input id="dsVendor" title="' + esc(help('di.advVendor')) + '" value="' + esc(adv.vendor || '') + '">' +
+    lbl('di.advModel', t('di.advModel')) +
+    '<input id="dsModel" title="' + esc(help('di.advModel')) + '" value="' +
+    esc((STATE.discoveryConfig && STATE.discoveryConfig.advertise_model) || 'auto') + '">' +
+    '<div class="fieldhelp">' +
+    esc(t('di.advNow')) + ': <b>' + esc(adv.vendor || '') + ' ' + esc(adv.model || '') + '</b> (' +
+    esc(t('di.advSource.' + (adv.source || 'fallback'))) + ')</div>' +
+    '</div><div>' +
+    lbl('di.enpcReply', t('di.enpcReply')) +
+    '<select id="dsEnpcReply" title="' + esc(help('di.enpcReply')) + '">' +
+    ['both', 'echo', 'epson'].map((v) =>
+      '<option value="' + v + '"' + (discovery.enpc_reply === v ? ' selected' : '') + '>' +
+      t('di.enpcReply.' + v) + '</option>').join('') + '</select>' +
+    checkbox('di.snmpOn', 'dsSnmp', t('di.snmpOn'), !STATE.discoveryConfig || STATE.discoveryConfig.snmp !== false)
+      .replace('data-f="dsSnmp"', 'id="dsSnmp"') +
+    checkbox('di.lpdOn', 'dsLpd', t('di.lpdOn'), !STATE.discoveryConfig || STATE.discoveryConfig.lpd !== false)
+      .replace('data-f="dsLpd"', 'id="dsLpd"') +
+    checkbox('di.watchOn', 'dsWatch', t('di.watchOn'), !STATE.discoveryConfig || STATE.discoveryConfig.watch_ports !== false)
+      .replace('data-f="dsWatch"', 'id="dsWatch"') +
+    '</div></div>' +
+    '<div class="btnbar"><button class="act primary" onclick="saveDiscovery()">' + t('sy.save') + '</button>' +
+    '<button class="act" onclick="renderDiag()">' + t('di.reload') + '</button></div>' +
+    '<div class="fieldhelp">' + t('di.saveHint') + '</div>';
+
+  /* the log itself */
+  html += '<h3>' + t('di.probes') + '</h3>';
+  const probes = discovery.probes || [];
+  if (!probes.length) {
     html += '<p class="muted">' + t('di.noProbes') + '</p>';
   } else {
-    enpc.probes.forEach((probe) => {
-      const head = fmtTime(probe.time) + ' — ' + esc(probe.peer) + ' — ' + probe.bytes + ' B — ' +
-        (probe.answered ? t('di.answered') : '—') + (probe.magic ? ' — ' + esc(probe.magic) : '') +
-        (probe.function ? ' ' + esc(probe.function) : '');
-      html += foldable('diag.probe:' + probe.time + ':' + probe.peer, head,
-                       '<pre>' + esc(probe.hexdump) + '</pre>', true);
+    probes.forEach((probe, index) => {
+      const head = '<code>' + esc(probe.protocol) + '</code> · ' + fmtTime(probe.time) + ' · ' +
+        esc(probe.peer) + ' · ' + probe.bytes + ' B · ' +
+        (probe.answered ? t('di.answered') : t('di.notAnswered')) +
+        (probe.summary ? ' · ' + esc(probe.summary) : '');
+      let body = '<pre>' + esc(probe.hexdump || '(0 B)') + '</pre>';
+      if (probe.reply_hexdump) {
+        body += '<div class="muted" style="font-size:.8rem">' + t('di.reply') + '</div>' +
+          '<pre>' + esc(probe.reply_hexdump) + '</pre>';
+      }
+      html += foldable('diag.probe:' + index + ':' + probe.protocol, head, body, index === 0);
     });
-    html += '<div class="btnbar"><button class="act" onclick="clearProbes()">' + t('di.clearProbes') + '</button></div>';
+    html += '<div class="btnbar"><button class="act" onclick="clearProbes()">' +
+      t('di.clearProbes') + '</button></div>';
   }
   html += '</div>';
 
@@ -1305,6 +1424,23 @@ async function clearSpool(printerId) {
   try { const r = await api('/api/printers/' + encodeURIComponent(printerId) + '/spool/clear', { method: 'POST' });
     toast('OK (' + r.removed + ')'); await reload(true); } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
 }
+async function saveDiscovery() {
+  const patch = { discovery: {
+    advertise_vendor: document.getElementById('dsVendor').value.trim() || 'EPSON',
+    advertise_model: document.getElementById('dsModel').value.trim() || 'auto',
+    enpc_reply: document.getElementById('dsEnpcReply').value,
+    snmp: document.getElementById('dsSnmp').checked,
+    lpd: document.getElementById('dsLpd').checked,
+    watch_ports: document.getElementById('dsWatch').checked
+  } };
+  try {
+    await api('/api/config', { method: 'PUT', body: JSON.stringify(patch) });
+    toast(t('common.saved') + ' — ' + t('di.restartNeeded'));
+    clearDirty('diag');
+  } catch (e) { toast(t('common.error') + ': ' + e.message, true); }
+}
+window.saveDiscovery = saveDiscovery;
+
 async function clearProbes() {
   try { await api('/api/discovery/clear', { method: 'POST' }); renderDiag(); }
   catch (e) { toast(t('common.error') + ': ' + e.message, true); }

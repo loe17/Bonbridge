@@ -129,34 +129,68 @@ Der zuverlässige Weg bleibt: **Drucker manuell über die IP-Adresse hinzufügen
 Die IP steht auf dem Statusbon, den BonBridge beim Einschalten druckt, und in
 der Weboberfläche.
 
-Trotzdem versucht BonBridge, in der Suche aufzutauchen. Kassen-Apps suchen
-Epson-Drucker über das **ENPC-Protokoll** (UDP 3289): Sie schicken ein
-Broadcast-Paket, das mit `EPSONQ` beginnt, Drucker antworten mit `EPSONq`.
-BonBridge beantwortet solche Pakete (Standard: an, abschaltbar unter *System*).
+Trotzdem soll BonBridge in der Suche auftauchen. Dafür ist zuerst eine
+Einsicht nötig:
 
-**Epson veröffentlicht dieses Protokoll nicht.** Das Antwortformat beruht auf
-öffentlichen Analysen Dritter – dass die Antwort korrekt ist, lässt sich ohne
-Originalgerät nicht garantieren. Deshalb gibt es die Diagnose:
+> **„Gefunden" ist keine Eigenschaft eines Druckers, sondern eines Protokolls.**
+> Ein echtes Epson-Netzwerkboard (UB-E04) beantwortet vier verschiedene
+> Verfahren, und jede App benutzt ein anderes. Wer nur eines davon bedient, ist
+> für die anderen unsichtbar.
 
-**Weboberfläche → Diagnose → Automatische Druckersuche**
+BonBridge beantwortet deshalb **alle vier**:
 
-Dort steht, wie viele Suchanfragen angekommen sind, von welcher Adresse, und
-jede einzelne als Hexdump. Das beantwortet die entscheidende Frage in einem
-einzigen Versuch:
+| Protokoll | Port | Wofür Apps es benutzen |
+|---|---|---|
+| **ENPC** | UDP 3289 | Die Suche des Epson-ePOS-SDK. Broadcast beginnt mit `EPSONQ`, Geräte antworten mit `EPSONq`. |
+| **SNMP v1** | UDP 161 | Die verbreitetste Druckersuche überhaupt: das ganze Subnetz mit einer Abfrage nach `sysDescr` durchgehen. Community `public`. |
+| **mDNS/Bonjour** | UDP 5353 | Bonjour-Suche über `_pdl-datastream._tcp` und `_printer._tcp`. |
+| **LPD/LPR** | TCP 515 | Klassischer Netzwerkdruck; manche Apps prüfen nur, ob der Port offen ist. |
 
-1. Suche in der Kassen-App starten.
-2. In der Diagnose nachsehen.
+Zusätzlich gibt es **passive Lauschposten** auf IPP (631), ePOS-Device (8008)
+und SSDP (1900). Diese antworten bewusst nie – eine halbgare Antwort wäre
+schlimmer als keine – aber sie halten fest, wer angeklopft hat.
+
+### Herausfinden, welches Protokoll deine App benutzt
+
+Das ist in einem Versuch geklärt:
+
+1. **Weboberfläche → Diagnose → Automatische Druckersuche** öffnen und
+   *Liste leeren* drücken.
+2. In der Kassen-App die Druckersuche starten.
+3. Die Diagnoseseite neu laden.
+
+In der Protokolltabelle zählt genau die Zeile hoch, die die App benutzt. Jede
+einzelne Anfrage steht darunter mit Absender und vollständigem Hexdump.
 
 | Beobachtung | Bedeutung | Nächster Schritt |
 |---|---|---|
-| **Anfragen erscheinen, Drucker taucht trotzdem nicht auf** | Die Suche erreicht das Gerät, aber unsere Antwort passt nicht. | Hexdump kopieren und melden – daraus lässt sich das Format nachziehen. |
-| **Keine Anfragen** | Die App sucht nicht per ENPC (oder das Broadcast kommt nicht durch). | Prüfen, ob Handy und Gerät im selben WLAN sind und ob der Router Broadcasts blockiert (Gäste-WLAN, „Client Isolation" / „AP Isolation" abschalten). Kommt weiterhin nichts an, benutzt die App ein anderes Verfahren – dann ist der manuelle Weg der richtige. |
-| **Anfragen erscheinen, „beantwortet" steht auf nein** | Der Responder läuft nicht oder Port 3289 ist belegt. | `ss -ulnp \| grep 3289` prüfen. |
+| Eine Zeile zählt hoch, Drucker erscheint trotzdem nicht | Das Protokoll stimmt, die Antwort passt der App nicht. | Hexdump kopieren und melden – daraus lässt sich das Format nachziehen. Bei ENPC vorher die *Antwortform* umstellen (siehe unten). |
+| **Gar nichts** zählt hoch | Die Suchpakete erreichen das Gerät nicht. | Sind Handy und Gerät im selben Netz? Viele Router trennen WLAN-Clients voneinander – „Client Isolation" / „AP Isolation" bzw. Gäste-WLAN abschalten. Broadcasts kommen sonst nie an. |
+| Eine Zeile steht auf **„Port belegt"** | Ein anderer Dienst hat den Port. | `ss -ulnp \| grep 3289` bzw. `ss -tlnp \| grep 515`. Häufig: ein installierter `snmpd` auf 161 oder `cupsd` auf 631. |
 
-Häufigste Ursache für „keine Anfragen": **Client-Isolation im WLAN**. Viele
-Router trennen WLAN-Clients voneinander, dann kommen Broadcasts nie an. Der
-Drucker ist dann trotzdem über die IP erreichbar, nur die Suche funktioniert
-nicht.
+### Hersteller und Modell, die angekündigt werden
+
+Kassen-Apps, die gezielt nach **Epson**-Druckern suchen, filtern nach
+Herstellername und Modell. Diese beiden Werte entscheiden also, ob das Gerät in
+der Liste überhaupt auftaucht – unabhängig davon, ob die Antwort technisch
+ankommt.
+
+Unter *Diagnose → Automatische Druckersuche → Wie sich BonBridge im Netz nennt*:
+
+* **Hersteller** – Standard `EPSON`. Das ist eine Kompatibilitätsangabe, so wie
+  ein Browser sich als etwas anderes ausgeben kann, damit eine Seite ihn
+  bedient. Im Gerät steckt weiterhin ein Raspberry Pi.
+* **Modell** – Standard `auto`: es wird das **tatsächlich erkannte** Modell des
+  angeschlossenen Druckers angekündigt (z. B. `TM-T88V`). Nur wenn nichts
+  erkannt wurde, greift ein Rückfallwert. Von Hand setzen, wenn die App ein
+  bestimmtes Modell erwartet.
+* **ENPC-Antwortform** – Epson veröffentlicht das Antwortformat nicht.
+  Standard ist *beide senden*: eine gespiegelte und eine strukturierte Antwort
+  kurz nacheinander. Clients ignorieren, was sie nicht verstehen. Nur
+  umstellen, wenn ein Test etwas anderes nahelegt.
+
+Änderungen wirken sofort – die Lauschposten werden beim Speichern neu
+gestartet, ein Dienstneustart ist nicht nötig.
 
 ## Statusabfrage verstehen
 
@@ -227,14 +261,19 @@ dann `sudo systemctl restart bonbridge`.
 |---|---|
 | 9100/tcp | RAW-Druck (Kassensystem) |
 | 8080/tcp | Weboberfläche |
-| 5353/udp | mDNS (Avahi, optional) |
-| 3289/udp | Epson-ENPC-Antwort (experimentell, standardmäßig aus) |
-| 631/tcp | CUPS (nur wenn `--with-cups` installiert) |
+| 515/tcp | LPD/LPR – Auffindbarkeit und klassischer Netzwerkdruck |
+| 161/udp | SNMP v1 – Standard-Druckersuche, Community `public` |
+| 5353/udp | mDNS (Avahi) |
+| 3289/udp | Epson-ENPC-Antwort |
+| 631/tcp | passiver Lauschposten (IPP) bzw. CUPS, falls installiert |
+| 8008/tcp | passiver Lauschposten (Epson ePOS-Device) |
+| 1900/udp | passiver Lauschposten (SSDP/UPnP) |
 
 Prüfen:
 
 ```bash
-ss -tlnp | grep -E ':(9100|8080|631)'
+ss -tlnp | grep -E ':(9100|8080|515|631)'
+ss -ulnp | grep -E ':(161|3289|5353)'
 ```
 
 ## „Der Drucker druckt, aber das Modell wird nicht erkannt"

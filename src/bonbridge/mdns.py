@@ -8,9 +8,18 @@ Two mechanisms, both optional:
 * If the ``zeroconf`` Python module is installed, the services are registered
   directly as well, which also works on hosts without Avahi.
 
-Announced services:
-  ``_pdl-datastream._tcp`` (port 9100)  - RAW printing, what POS apps look for
-  ``_http._tcp``           (web port)   - the BonBridge web interface
+Announced services - deliberately more than one, because different clients
+browse for different types and a printer that answers only one of them is
+invisible to the rest:
+
+  ``_pdl-datastream._tcp`` (9100)     - RAW printing, what most POS apps browse
+  ``_printer._tcp``        (515)      - LPR, the classic Bonjour printer type
+  ``_ipp._tcp``            (631)      - IPP; some clients browse only this
+  ``_http._tcp``           (web port) - the BonBridge web interface
+
+The TXT records follow the Bonjour Printing Specification (``ty``, ``product``,
+``usb_MFG``, ``usb_MDL``, ``rp``, ``pdl``).  Clients that filter for Epson
+devices match on ``usb_MFG``/``product``, so those carry the announced model.
 
 A note on ``<hostname>.local``: mDNS name resolution is built into macOS,
 iOS, Android and most Linux desktops, but **not** into Windows unless Bonjour
@@ -73,12 +82,10 @@ def write_avahi_service_file(
         port = int(printer.get("port") or 9100)
         model = escape(str(printer.get("model") or "ESC-POS"))
         vendor = escape(str(printer.get("vendor") or "BonBridge"))
+        queue = escape(str(printer.get("id") or "bonbridge"))
         # TXT keys follow the Bonjour Printing Specification so that clients
         # which filter by manufacturer/model see something meaningful.
-        lines += [
-            "  <service>",
-            "    <type>_pdl-datastream._tcp</type>",
-            f"    <port>{port}</port>",
+        common = [
             f"    <txt-record>ty={name}</txt-record>",
             "    <txt-record>pdl=application/octet-stream</txt-record>",
             f"    <txt-record>product=({model})</txt-record>",
@@ -86,8 +93,13 @@ def write_avahi_service_file(
             f"    <txt-record>usb_MDL={model}</txt-record>",
             f"    <txt-record>note={escape(label)}</txt-record>",
             "    <txt-record>priority=10</txt-record>",
-            "  </service>",
         ]
+        lines += ["  <service>", "    <type>_pdl-datastream._tcp</type>", f"    <port>{port}</port>"]
+        lines += common + ["  </service>"]
+        # The classic Bonjour printer type.  Browsing clients that only know
+        # _printer._tcp would otherwise never see this device.
+        lines += ["  <service>", "    <type>_printer._tcp</type>", "    <port>515</port>"]
+        lines += common + [f"    <txt-record>rp={queue}</txt-record>", "  </service>"]
     lines.append("</service-group>")
     try:
         AVAHI_SERVICE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -134,19 +146,30 @@ class MdnsAdvertiser:
             )
         ]
         for printer in printers:
+            identifier = printer.get("id", "printer")
+            properties = {
+                "ty": str(printer.get("name") or ""),
+                "pdl": "application/octet-stream",
+                "product": f"({printer.get('model') or 'ESC-POS'})",
+                "usb_MFG": str(printer.get("vendor") or "BonBridge"),
+                "usb_MDL": str(printer.get("model") or "ESC-POS"),
+                "rp": str(identifier),
+                "priority": "10",
+            }
             entries.append(
                 (
                     "_pdl-datastream._tcp.local.",
-                    f"{printer.get('id', 'printer')}-{host}._pdl-datastream._tcp.local.",
+                    f"{identifier}-{host}._pdl-datastream._tcp.local.",
                     int(printer.get("port") or 9100),
-                    {
-                        "ty": str(printer.get("name") or ""),
-                        "pdl": "application/octet-stream",
-                        "product": f"({printer.get('model') or 'ESC-POS'})",
-                        "usb_MFG": str(printer.get("vendor") or "BonBridge"),
-                        "usb_MDL": str(printer.get("model") or "ESC-POS"),
-                        "priority": "10",
-                    },
+                    properties,
+                )
+            )
+            entries.append(
+                (
+                    "_printer._tcp.local.",
+                    f"{identifier}-{host}._printer._tcp.local.",
+                    515,
+                    properties,
                 )
             )
 

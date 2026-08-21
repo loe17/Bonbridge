@@ -19,10 +19,14 @@ from . import (
     escpos,
     health,
     images,
+    lpd,
     mdns,
     netwatch,
     paths,
+    portwatch,
+    probes,
     receipts,
+    snmp,
     sysinfo,
     updater,
 )
@@ -93,6 +97,11 @@ class BonBridge:
         self._stop_event = threading.Event()
         self.mdns = mdns.MdnsAdvertiser()
         self.enpc: Optional[discovery.EnpcResponder] = None
+        self.snmp: Optional[snmp.SnmpResponder] = None
+        self.lpd: Optional[lpd.LpdServer] = None
+        self.portwatch: Optional[portwatch.PortWatch] = None
+        #: One log for every discovery protocol (see probes.py).
+        self.probe_log = probes.ProbeLog()
         self.netwatch: Optional[netwatch.NetworkWatcher] = None
         self.update_checker: Optional[updater.UpdateChecker] = None
         self.web_server: Any = None
@@ -151,29 +160,78 @@ class BonBridge:
             self.printers[runtime.printer_id] = runtime
             runtime.start()
 
+    # ------------------------------------------------------------------
+    # Being found: ENPC, SNMP, mDNS, LPD - and a log of who asked
+    # ------------------------------------------------------------------
+
+    def advertised_identity(self) -> Dict[str, Any]:
+        """What BonBridge calls itself on the network.
+
+        Apps that search for "Epson printers" filter on the vendor and model
+        string, so this is what decides whether the device shows up in their
+        list at all.  ``auto`` uses the model that was actually detected on the
+        USB port; only when nothing could be detected does the configured
+        fallback step in.
+        """
+        settings = self.config.data.get("discovery") or {}
+        vendor = str(settings.get("advertise_vendor") or "EPSON")
+        configured = str(settings.get("advertise_model") or "auto")
+        fallback = str(settings.get("advertise_fallback") or "TM-T88V")
+
+        detected = ""
+        serial = ""
+        for runtime in self.printers.values():
+            capabilities = runtime.worker.capabilities or {}
+            profile_id = str(capabilities.get("profile_id") or "")
+            if profile_id and not profile_id.startswith("generic"):
+                detected = profile_id
+            serial = serial or str((runtime.worker.identity or {}).get("serial") or "")
+            if detected:
+                break
+
+        if configured.lower() == "auto":
+            model = detected or fallback
+            source = "detected" if detected else "fallback"
+        else:
+            model = configured
+            source = "manual"
+        return {
+            "vendor": vendor,
+            "model": model,
+            "detected": detected,
+            "source": source,
+            "serial": serial,
+            "name": str(self.config.data.get("hostname_label") or sysinfo.hostname()),
+            "mac": discovery.local_mac(),
+        }
+
     def _start_discovery(self) -> None:
         settings = self.config.data.get("discovery") or {}
         web_port = int((self.config.data.get("web") or {}).get("port") or 8080)
         raw_port = int((self.config.data.get("raw") or {}).get("port") or 9100)
+        self.probe_log.enabled = bool(settings.get("log_probes", True))
+        identity = self.advertised_identity()
+
         announced = []
         for runtime in self.printers.values():
             if not runtime.config.get("enabled", True):
                 continue
-            capabilities = runtime.worker.capabilities or {}
             announced.append(
                 {
                     "id": runtime.printer_id,
                     "name": runtime.config.get("name"),
                     "port": raw_port,
-                    "model": capabilities.get("profile_name") or "ESC-POS",
-                    "vendor": capabilities.get("vendor") or "BonBridge",
+                    "model": identity["model"],
+                    "vendor": identity["vendor"],
                 }
             )
+
         if settings.get("mdns", True):
             mdns.write_avahi_service_file(
                 announced, web_port, str(self.config.data.get("hostname_label") or "")
             )
             self.mdns.start(announced, web_port)
+
         if settings.get("enpc", True):
             self.enpc = discovery.EnpcResponder(
                 device_name_provider=lambda: str(
@@ -183,8 +241,73 @@ class BonBridge:
                 ip_provider=sysinfo.primary_ipv4,
                 log_probes=bool(settings.get("log_probes", True)),
                 port=int(settings.get("enpc_port") or discovery.ENPC_PORT),
+                model_name=identity["model"],
+                reply_style=str(settings.get("enpc_reply") or "both"),
+                probe_log=self.probe_log,
             )
             self.enpc.start()
+
+        if settings.get("snmp", True):
+            self.snmp = snmp.SnmpResponder(
+                self._snmp_info,
+                self.probe_log,
+                port=int(settings.get("snmp_port") or snmp.SNMP_PORT),
+                community=str(settings.get("snmp_community") or "public"),
+            )
+            self.snmp.start()
+
+        if settings.get("lpd", True):
+            self.lpd = lpd.LpdServer(
+                self._deliver_lpd_job,
+                self.probe_log,
+                port=int(settings.get("lpd_port") or lpd.LPD_PORT),
+                queue_name=str(self.config.data.get("hostname_label") or "BonBridge"),
+            )
+            self.lpd.start()
+
+        if settings.get("watch_ports", True):
+            self.portwatch = portwatch.PortWatch(
+                self.probe_log,
+                tcp_ports=[int(p) for p in (settings.get("watch_tcp") or [])],
+                udp_ports=[int(p) for p in (settings.get("watch_udp") or [])],
+            )
+            self.portwatch.start()
+
+    def restart_discovery(self) -> None:
+        """Apply changed discovery settings without restarting the process."""
+        with self._lock:
+            for listener in (self.enpc, self.snmp, self.lpd, self.portwatch):
+                if listener is not None:
+                    try:
+                        listener.stop()
+                    except Exception as exc:  # noqa: BLE001
+                        log.debug("stopping a discovery listener failed: %s", exc)
+            self.mdns.stop()
+            self.enpc = None
+            self.snmp = None
+            self.lpd = None
+            self.portwatch = None
+            # Give the sockets a moment to be released before rebinding them.
+            time.sleep(0.4)
+            self._start_discovery()
+        log.info("Discovery listeners restarted")
+
+    def _snmp_info(self) -> Dict[str, Any]:
+        identity = self.advertised_identity()
+        return {
+            "model": identity["model"],
+            "name": identity["name"],
+            "serial": identity["serial"],
+            "mac": identity["mac"],
+        }
+
+    def _deliver_lpd_job(self, data: bytes, peer: str, label: str) -> None:
+        """An LPR job goes to the same worker as a job arriving on 9100."""
+        runtime = next(iter(self.printers.values()), None)
+        if runtime is None:
+            log.warning("LPD job from %s dropped: no printer configured", peer)
+            return
+        runtime.worker.submit_bytes(data, source=f"lpd {peer}", label=label)
 
     # ------------------------------------------------------------------
     # Network watchdog
@@ -452,6 +575,15 @@ class BonBridge:
         if self.enpc is not None:
             self.enpc.stop()
             self.enpc = None
+        if self.snmp is not None:
+            self.snmp.stop()
+            self.snmp = None
+        if self.lpd is not None:
+            self.lpd.stop()
+            self.lpd = None
+        if self.portwatch is not None:
+            self.portwatch.stop()
+            self.portwatch = None
         self.mdns.stop()
 
     def wait(self) -> None:
@@ -994,19 +1126,114 @@ class BonBridge:
         return {"ok": True, "queued": True, "bytes": len(entry["payload"])}
 
     def discovery_snapshot(self) -> Dict[str, Any]:
+        """Everything about being found, in one object.
+
+        The list of protocols is the point: a printer is only "not found"
+        relative to the protocol the app happens to speak, so the interface
+        shows all of them side by side with the number of probes each has
+        actually seen.
+        """
         settings = self.config.data.get("discovery") or {}
+        identity = self.advertised_identity()
+        counts = self.probe_log.counts()
+
+        def seen(protocol: str) -> int:
+            return counts.get(protocol, {}).get("requests", 0)
+
+        protocols = [
+            {
+                "id": "enpc",
+                "label": "ENPC (Epson)",
+                "transport": f"UDP {settings.get('enpc_port', 3289)}",
+                "enabled": bool(settings.get("enpc", True)),
+                "listening": bool(self.enpc and self.enpc.snapshot().get("listening")),
+                "answers": True,
+                "requests": seen("enpc"),
+                "replies": counts.get("enpc", {}).get("replies", 0),
+                "purpose_de": "Suche der Epson-ePOS-App",
+                "purpose_en": "Epson ePOS app search",
+            },
+            {
+                "id": "snmp",
+                "label": "SNMP v1",
+                "transport": f"UDP {settings.get('snmp_port', 161)}",
+                "enabled": bool(settings.get("snmp", True)),
+                "listening": bool(self.snmp and self.snmp.snapshot().get("listening")),
+                "answers": True,
+                "requests": seen("snmp"),
+                "replies": counts.get("snmp", {}).get("replies", 0),
+                "purpose_de": "Standard-Druckersuche im Netz",
+                "purpose_en": "standard network printer discovery",
+            },
+            {
+                "id": "mdns",
+                "label": "mDNS / Bonjour",
+                "transport": "UDP 5353",
+                "enabled": bool(settings.get("mdns", True)),
+                "listening": bool(settings.get("mdns", True)),
+                "answers": True,
+                "requests": seen("mdns"),
+                "replies": 0,
+                "purpose_de": "Bonjour-Druckersuche (Avahi)",
+                "purpose_en": "Bonjour printer browsing (Avahi)",
+            },
+            {
+                "id": "lpd",
+                "label": "LPD / LPR",
+                "transport": f"TCP {settings.get('lpd_port', 515)}",
+                "enabled": bool(settings.get("lpd", True)),
+                "listening": bool(self.lpd and self.lpd.snapshot().get("listening")),
+                "answers": True,
+                "requests": seen("lpd"),
+                "replies": counts.get("lpd", {}).get("replies", 0),
+                "purpose_de": "klassischer Netzwerkdruck",
+                "purpose_en": "classic network printing",
+            },
+        ]
+        for entry in self.portwatch.snapshot() if self.portwatch else []:
+            key = f"{entry['protocol']}/{entry['port']}"
+            protocols.append(
+                {
+                    "id": key,
+                    "label": entry["label"],
+                    "transport": key.upper(),
+                    "enabled": True,
+                    "listening": entry["listening"],
+                    "answers": False,
+                    "requests": seen(key),
+                    "replies": 0,
+                    "purpose_de": entry["purpose"].split(" / ")[0],
+                    "purpose_en": entry["purpose"].split(" / ")[-1],
+                }
+            )
+
         return {
             "mdns": bool(settings.get("mdns", True)),
             "mdns_active": self.mdns.active,
+            "advertised": {
+                "vendor": identity["vendor"],
+                "model": identity["model"],
+                "detected": identity["detected"],
+                "source": identity["source"],
+                "name": identity["name"],
+            },
+            "enpc_reply": str(settings.get("enpc_reply") or "both"),
+            "log_probes": bool(settings.get("log_probes", True)),
+            "protocols": protocols,
+            "total_requests": self.probe_log.total_requests(),
+            "probes": self.probe_log.entries(),
             "enpc": self.enpc.snapshot()
             if self.enpc
             else {"enabled": False, "probes": [], "requests": 0, "replies": 0},
+            "snmp": self.snmp.snapshot() if self.snmp else {"enabled": False},
+            "lpd": self.lpd.snapshot() if self.lpd else {"enabled": False},
         }
 
     def clear_discovery_probes(self) -> Dict[str, Any]:
-        if self.enpc is None:
-            return {"ok": True, "removed": 0}
-        return {"ok": True, "removed": self.enpc.clear_probes()}
+        removed = self.probe_log.clear()
+        if self.enpc is not None:
+            self.enpc.clear_probes()
+        return {"ok": True, "removed": removed}
 
     # ------------------------------------------------------------------
     # Configuration changes

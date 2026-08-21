@@ -2,42 +2,56 @@
 
 Why this exists
 ---------------
-The OrderAssist app has a "search for printers" button.  Its own documentation
-says the search "may return no results if no EPSON printer is used", i.e. the
-search is Epson specific.  Epson's ePOS SDK finds devices by broadcasting a
-UDP datagram to port 3289 whose payload starts with the ASCII magic
-``EPSONQ``; devices answer with ``EPSONq``.
+POS apps that look for "Epson printers" use Epson's own ePOS SDK, whose
+``Discovery`` class broadcasts a UDP datagram to ``255.255.255.255:3289``
+starting with the ASCII magic ``EPSONQ``.  Epson's Ethernet interface for the
+TM series (UB-E04) lists ENPC on UDP 3289 among its protocols, with the packet
+types *Probe, Initialize, Query, Setup and Notify* - so the family is
+``EPSON`` plus one letter, upper case for the request and lower case for the
+matching reply (``EPSONQ`` -> ``EPSONq``, ``EPSONC`` -> ``EPSONc``).
 
-Epson does **not** publish the ENPC specification.  Everything below is derived
-from public reverse-engineering work, so the reply is *best effort*: BonBridge
-echoes the request header back with the lower-case magic and appends the
-device identity.  Answering costs nothing and cannot break anything - the
-worst case is that the app ignores the reply and the printer still has to be
-added by IP address, which is the documented and supported path.
+Epson does **not** publish the payload format.  The frame layout below comes
+from public reverse-engineering work:
 
-To make this verifiable instead of guesswork, every probe is recorded with a
-full hexdump (``discovery.log_probes``) and shown in the web interface under
-*Diagnostics -> Discovery*.  That answers the decisive question in one test
-run: **does the app send anything to port 3289 at all?**
+    offset 0-5    magic, e.g. "EPSONQ"
+    offset 6-9    function id (4 bytes)
+    offset 10-13  payload length (4 bytes, little endian)
+    offset 14+    payload
 
-* If probes appear, the transport works and only the reply format is in
-  question - the hexdump tells us what to change.
-* If no probes appear, the app does not use ENPC and the search must work some
-  other way; no reply format would ever have helped.
-
-Observed request (from the escpos-php issue linked below), 16 bytes:
+Observed discovery broadcast from the ePOS SDK, 16 bytes::
 
     45 50 53 4f 4e 51  03 00 00 00  10 00 00 00  00 00
-    E  P  S  O  N  Q   <-- header, echoed back verbatim -->
+    E  P  S  O  N  Q   function     length       data
+
+Because the *reply* payload is still guesswork, BonBridge can send more than
+one shape of it (``discovery.enpc_reply``):
+
+``echo``
+    Mirror the request header verbatim and append the identity.  Safe: no
+    field is invented, so nothing can be wrong except the payload itself.
+``epson``
+    Build a proper frame with a real length field and a structured payload
+    (MAC, IP, netmask, gateway, device name, model), the way a real device is
+    described in the reverse-engineering write-up.
+``both`` (default)
+    Send both, one after the other.  A client that dislikes one usually
+    ignores it and takes the other; two small datagrams cost nothing.
+
+Every probe is written to the shared probe log with a full hexdump, so one
+press of "search for printers" in the app shows exactly what arrived and
+whether it was answered - see :mod:`bonbridge.probes`.
 
 References
 ----------
-* wes4m, "Reverse Engineering Thermal Printers"
+* wes4m, "Reverse Engineering Thermal Printers" (ENPC frame layout)
   https://wes4m.io/posts/epson_rev/
 * mike42/escpos-php issue #923, "Need help with ENPC protocol 3289"
+  (the observed 16-byte discovery broadcast)
   https://github.com/mike42/escpos-php/issues/923
 * Epson ePOS SDK, ``Discovery.start`` (the official client side)
   https://download4.epson.biz/sec_pubs/pos/reference_en/epos_and/ref_epos_sdk_and_en_discoveryclass_start.html
+* Epson UB-E04 Technical Reference Guide (ENPC packet types, ports)
+  https://files.support.epson.com/pdf/ube04_/ube04_trg.pdf
 * Full reference list: docs/en/09-references.md / docs/de/09-referenzen.md
 """
 
@@ -54,13 +68,30 @@ log = logging.getLogger(__name__)
 
 ENPC_PORT = 3289
 
+MAGIC_PREFIX = b"EPSON"
+
 MAGIC_QUERY = b"EPSONQ"
 MAGIC_QUERY_REPLY = b"EPSONq"
 MAGIC_COMMAND = b"EPSONC"
 MAGIC_COMMAND_REPLY = b"EPSONc"
 
-QUERY_MAGICS = (MAGIC_QUERY, MAGIC_COMMAND)
-REPLY_FOR = {MAGIC_QUERY: MAGIC_QUERY_REPLY, MAGIC_COMMAND: MAGIC_COMMAND_REPLY}
+#: The UB-E04 reference lists the packet types Probe, Initialize, Query, Setup
+#: and Notify.  Rather than hard-coding a list that is probably incomplete,
+#: anything of the form ``EPSON`` + one upper-case letter counts as a request
+#: and is answered with the same letter in lower case.
+def reply_magic(magic: bytes) -> Optional[bytes]:
+    """``b"EPSONQ"`` -> ``b"EPSONq"``; ``None`` if this is not a request."""
+    if len(magic) != 6 or not magic.startswith(MAGIC_PREFIX):
+        return None
+    letter = magic[5:6]
+    if not letter.isalpha() or not letter.isupper():
+        return None
+    return MAGIC_PREFIX + letter.lower()
+
+
+def is_request(magic: bytes) -> bool:
+    return reply_magic(magic) is not None
+
 
 #: Header length: 6 bytes magic + 4 bytes function + 4 bytes length field.
 HEADER_LEN = 14
@@ -69,6 +100,9 @@ HEADER_LEN = 14
 FUNC_DEVICE_NAME = 0x03000000
 FUNC_NETWORK_INFO = 0x03000010
 FUNC_WHO_IS_HOLDING = 0x03000017
+
+#: Which shape(s) of reply to send - see the module docstring.
+REPLY_STYLES = ("echo", "epson", "both")
 
 #: How many probes to keep for the diagnostics page.
 PROBE_LOG_SIZE = 40
@@ -94,19 +128,34 @@ def build_frame(magic: bytes, header_tail: bytes, payload: bytes = b"") -> bytes
     return magic + header_tail[:8].ljust(8, b"\x00") + payload
 
 
+def build_structured_frame(magic: bytes, function: bytes, payload: bytes = b"") -> bytes:
+    """A frame with a real length field, the way a device is expected to answer.
+
+    ``<magic:6><function:4><len(payload):4 little endian><payload>``
+    """
+    return (
+        magic
+        + function[:4].ljust(4, b"\x00")
+        + struct.pack("<I", len(payload))
+        + payload
+    )
+
+
 def parse_frame(data: bytes) -> Optional[Dict[str, Any]]:
     """Split an ENPC datagram into magic, header tail and payload."""
     if len(data) < 6:
         return None
     magic = data[:6]
-    if magic not in (MAGIC_QUERY, MAGIC_COMMAND, MAGIC_QUERY_REPLY, MAGIC_COMMAND_REPLY):
+    if not (is_request(magic) or (magic.startswith(MAGIC_PREFIX) and magic[5:6].islower())):
         return None
     header_tail = data[6:HEADER_LEN].ljust(8, b"\x00")
     function = struct.unpack(">I", header_tail[:4])[0] if len(header_tail) >= 4 else 0
     return {
         "magic": magic,
         "header_tail": header_tail,
+        "function_bytes": header_tail[:4],
         "function": function,
+        "declared_length": struct.unpack("<I", header_tail[4:8])[0],
         "payload": data[HEADER_LEN:],
         "raw": data,
     }
@@ -124,6 +173,8 @@ class EnpcResponder(threading.Thread):
         port: int = ENPC_PORT,
         log_probes: bool = True,
         model_name: str = "TM-T88V",
+        reply_style: str = "both",
+        probe_log: Optional[Any] = None,
     ):
         super().__init__(name="enpc-responder", daemon=True)
         self.device_name_provider = device_name_provider
@@ -133,6 +184,9 @@ class EnpcResponder(threading.Thread):
         self.port = port
         self.log_probes = log_probes
         self.model_name = model_name
+        self.reply_style = reply_style if reply_style in REPLY_STYLES else "both"
+        #: Shared log across all discovery protocols (bonbridge.probes.ProbeLog).
+        self.probe_log = probe_log
 
         self._sock: Optional[socket.socket] = None
         self._stop_event = threading.Event()
@@ -186,42 +240,54 @@ class EnpcResponder(threading.Thread):
         frame = parse_frame(data)
         peer_text = f"{peer[0]}:{peer[1]}"
         self.last_peer = peer_text
+        recognised = frame is not None and is_request(frame["magic"])
 
         entry: Dict[str, Any] = {
             "time": time.time(),
+            "protocol": "enpc",
             "peer": peer_text,
             "bytes": len(data),
             "hexdump": hexdump(data),
-            "recognised": frame is not None and frame["magic"] in QUERY_MAGICS,
+            "recognised": recognised,
             "magic": frame["magic"].decode("ascii", "replace") if frame else "",
             "function": f"0x{frame['function']:08x}" if frame else "",
             "answered": False,
             "reply_hexdump": "",
+            "summary": "",
         }
 
         with self._lock:
             self.requests += 1
 
-        if frame is None or frame["magic"] not in QUERY_MAGICS:
-            # Not an ENPC query (could be an answer from a real printer, or
-            # something else entirely).  Record it anyway - knowing what else
+        if not recognised:
+            # Not an ENPC request - could be the answer of a real printer, or
+            # something else entirely.  Record it anyway: knowing what else
             # arrives on 3289 is exactly the point of this log.
-            self._remember(entry)
-            log.info("Discovery probe from %s (not an ENPC query, %s bytes)", peer_text, len(data))
+            entry["summary"] = "no ENPC request"
+            self._remember(entry, data)
+            log.info(
+                "Discovery probe from %s (not an ENPC request, %s bytes)", peer_text, len(data)
+            )
             return
 
-        reply = self._build_reply(frame)
-        entry["reply_hexdump"] = hexdump(reply)
-        sent_to = self._send(reply, peer)
+        assert frame is not None
+        replies = self._build_replies(frame)
+        entry["summary"] = f"{entry['magic']} function {entry['function']} -> {self.reply_style}"
+        entry["reply_hexdump"] = "\n\n".join(hexdump(reply) for reply in replies)
+
+        sent_to: List[str] = []
+        for reply in replies:
+            sent_to.extend(self._send(reply, peer))
         entry["answered"] = bool(sent_to)
         entry["reply_targets"] = sent_to
-        self._remember(entry)
+        self._remember(entry, data)
 
         if sent_to:
             with self._lock:
                 self.replies += 1
             log.info(
-                "ENPC: answered discovery probe from %s (function %s) -> %s",
+                "ENPC: answered %s from %s (function %s) -> %s",
+                entry["magic"],
                 peer_text,
                 entry["function"],
                 ", ".join(sent_to),
@@ -264,35 +330,109 @@ class EnpcResponder(threading.Thread):
                 log.debug("ENPC reply to %s failed: %s", address, exc)
         return targets
 
-    def _build_reply(self, frame: Dict[str, Any]) -> bytes:
-        """Echo the request header, append identity as the payload.
+    # -- reply construction ------------------------------------------------
 
-        Echoing means we do not have to know whether the four header bytes
-        after the magic are a function code, a length, or both - whatever the
-        client sent, it gets back.
-        """
-        magic = REPLY_FOR.get(frame["magic"], MAGIC_QUERY_REPLY)
+    @staticmethod
+    def _netmask_for(ip_text: str) -> bytes:
+        """Netmask of the interface that carries ``ip_text``, packed."""
+        from . import sysinfo
+
+        for entry in sysinfo.ip_addresses():
+            if entry.get("address") != ip_text or "/" not in (entry.get("cidr") or ""):
+                continue
+            try:
+                bits = int(entry["cidr"].split("/", 1)[1])
+                mask = (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF
+                return struct.pack(">I", mask)
+            except (ValueError, OSError):
+                break
+        return b"\xff\xff\xff\x00"
+
+    def _identity(self) -> Dict[str, bytes]:
+        from . import netwatch
+
         name = self.device_name_provider().encode("ascii", "replace")[:32]
+        model = (self.model_name or "TM-T88V").encode("ascii", "replace")[:24]
         mac = self.mac_provider()[:6].ljust(6, b"\x00")
-        try:
-            ip = socket.inet_aton(self.ip_provider())
-        except OSError:
-            ip = b"\x00\x00\x00\x00"
 
+        def packed(address: str) -> bytes:
+            try:
+                return socket.inet_aton(address)
+            except OSError:
+                return b"\x00\x00\x00\x00"
+
+        ip_text = self.ip_provider()
+        return {
+            "name": name,
+            "model": model,
+            "mac": mac,
+            "ip": packed(ip_text),
+            "netmask": self._netmask_for(ip_text),
+            "gateway": packed(netwatch.default_gateway()),
+        }
+
+    def _build_replies(self, frame: Dict[str, Any]) -> List[bytes]:
+        """One or two datagrams, depending on ``reply_style``."""
+        magic = reply_magic(frame["magic"]) or MAGIC_QUERY_REPLY
+        identity = self._identity()
+
+        replies: List[bytes] = []
+        if self.reply_style in ("echo", "both"):
+            replies.append(build_frame(magic, frame["header_tail"], self._payload(frame, identity)))
+        if self.reply_style in ("epson", "both"):
+            payload = self._payload(frame, identity, structured=True)
+            replies.append(build_structured_frame(magic, frame["function_bytes"], payload))
+        return replies
+
+    def _payload(
+        self, frame: Dict[str, Any], identity: Dict[str, bytes], structured: bool = False
+    ) -> bytes:
+        """What goes after the header.
+
+        The layout of a real device's reply is not published.  The structured
+        variant follows the description from the reverse-engineering write-up
+        (model name, MAC, IP configuration); the echo variant simply puts the
+        identity where a client scanning for an ASCII model name will find it.
+        """
         function = frame["function"]
+        if function == FUNC_WHO_IS_HOLDING:
+            # "Nobody is holding this printer" - all zeroes means free.
+            return b"\x00" * 4
+        if structured:
+            return (
+                identity["mac"]
+                + identity["ip"]
+                + identity["netmask"]
+                + identity["gateway"]
+                + identity["model"]
+                + b"\x00"
+                + identity["name"]
+                + b"\x00"
+            )
         if function == FUNC_NETWORK_INFO:
-            payload = mac + ip + name + b"\x00"
-        elif function == FUNC_WHO_IS_HOLDING:
-            payload = b"\x00" * 4
-        else:
-            # Device name / broadcast discovery and anything unknown: identify
-            # ourselves with name, MAC and IP.  Extra bytes are ignored by
-            # clients that only want the name.
-            payload = name + b"\x00" + mac + ip
+            return identity["mac"] + identity["ip"] + identity["name"] + b"\x00"
+        return (
+            identity["name"]
+            + b"\x00"
+            + identity["model"]
+            + b"\x00"
+            + identity["mac"]
+            + identity["ip"]
+        )
 
-        return build_frame(magic, frame["header_tail"], payload)
-
-    def _remember(self, entry: Dict[str, Any]) -> None:
+    def _remember(self, entry: Dict[str, Any], data: bytes = b"") -> None:
+        # The shared log is what the diagnostics page shows across all
+        # protocols; the local list keeps the ENPC-only view working.
+        # `data` stays out of `entry` on purpose - the entry is serialised to
+        # JSON for the web interface, and raw bytes are not JSON.
+        if self.probe_log is not None:
+            self.probe_log.add(
+                "enpc",
+                entry["peer"],
+                data,
+                answered=entry["answered"],
+                summary=entry.get("summary", ""),
+            )
         if not self.log_probes:
             return
         with self._lock:

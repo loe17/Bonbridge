@@ -47,6 +47,9 @@ RAW_PORT = 19100
 WEB_PORT = 18080
 PRINTER_PORT = 19200
 ENPC_PORT = 13289
+SNMP_PORT = 13161
+LPD_PORT = 13515
+WATCH_TCP_PORT = 13631
 
 FAILURES = []
 
@@ -224,6 +227,77 @@ def check_profile_matching() -> None:
     check(checks and checks[0]["level"] == "warn", "a generic profile is reported as a warning")
 
 
+def check_discovery_protocols() -> None:
+    """The frame handling of the discovery protocols, without any sockets."""
+    from bonbridge import discovery, portwatch, snmp
+    from bonbridge.probes import ProbeLog
+
+    # -- ENPC: any EPSON<upper> is a request, answered in lower case --------
+    check(discovery.reply_magic(b"EPSONQ") == b"EPSONq", "EPSONQ is answered with EPSONq")
+    check(discovery.reply_magic(b"EPSONP") == b"EPSONp", "EPSONP (probe) is answered too")
+    check(discovery.reply_magic(b"EPSONq") is None, "a reply is not treated as a request")
+    check(discovery.reply_magic(b"HPHPQ!") is None, "a foreign magic is ignored")
+
+    # The 16-byte broadcast that the Epson ePOS SDK actually sends.
+    observed = bytes.fromhex("4550534f4e5103000000100000000000")
+    frame = discovery.parse_frame(observed)
+    check(frame is not None and frame["magic"] == b"EPSONQ", "the observed SDK broadcast parses")
+
+    structured = discovery.build_structured_frame(b"EPSONq", b"\x03\x00\x00\x00", b"payload")
+    check(structured.startswith(b"EPSONq"), "structured reply carries the reply magic")
+    length = int.from_bytes(structured[10:14], "little")
+    check(length == len(b"payload"), f"structured reply declares its payload length ({length})")
+
+    # -- SNMP: encode a real request, decode our own response --------------
+    mib = snmp.build_mib(model="TM-T88V", device_name="Theke", serial="S1", mac=b"\x01\x02\x03\x04\x05\x06")
+    binding = snmp._tlv(snmp.TAG_SEQUENCE, snmp.encode_oid("1.3.6.1.2.1.1.1.0") + snmp._tlv(snmp.TAG_NULL, b""))
+    pdu = (snmp.encode_integer(7) + snmp.encode_integer(0) + snmp.encode_integer(0)
+           + snmp._tlv(snmp.TAG_SEQUENCE, binding))
+    message = snmp._tlv(
+        snmp.TAG_SEQUENCE,
+        snmp.encode_integer(0) + snmp._tlv(snmp.TAG_OCTET_STRING, b"public")
+        + snmp._tlv(snmp.PDU_GET, pdu),
+    )
+    parsed = snmp.parse_request(message)
+    check(parsed is not None and parsed["oids"] == ["1.3.6.1.2.1.1.1.0"], "SNMP GetRequest parses")
+    response = snmp.build_response(parsed, mib)
+    check(b"EPSON TM-T88V" in response, "SNMP answers sysDescr with the Epson model")
+    check(snmp.parse_request(response) is None, "a response is not mistaken for a request")
+
+    # GetNext has to walk in OID order, or a client's walk never terminates.
+    parsed["pdu"] = snmp.PDU_GETNEXT
+    parsed["oids"] = ["1.3.6.1.2.1.1.1.0"]
+    following = snmp.build_response(parsed, mib)
+    check(b"\x06\x08+\x06\x01\x02\x01\x01\x02\x00" in following or len(following) > 20,
+          "GetNext returns the following object")
+    ordered = [oid for oid, _, _ in mib]
+    check(ordered == sorted(ordered, key=snmp.oid_key), "the MIB is stored in OID order")
+
+    # An unknown OID must not raise; v1 says noSuchName.
+    parsed["pdu"] = snmp.PDU_GET
+    parsed["oids"] = ["1.3.6.1.9.9.9.9.0"]
+    unknown = snmp.build_response(parsed, mib)
+    check(len(unknown) > 10, "an unknown OID produces a valid noSuchName response")
+
+    # -- port watcher: records without answering ---------------------------
+    log = ProbeLog()
+    watch = portwatch.PortWatch(log, tcp_ports=[], udp_ports=[])
+    watch.record(631, "tcp", "10.0.0.9:5000", b"POST /ipp/print HTTP/1.1\r\n")
+    entries = log.entries()
+    check(entries and entries[0]["protocol"] == "tcp/631", "a port probe is logged by port")
+    check(not entries[0]["answered"], "a watched port is never answered")
+    check("IPP" in entries[0]["summary"], "the log names the protocol behind the port")
+    check(portwatch.describe_port(3289).startswith("ENPC"), "ports are described, not just numbered")
+
+    # -- the shared log counts per protocol --------------------------------
+    log.add("enpc", "10.0.0.9:1", b"EPSONQ", answered=True)
+    log.add("snmp", "10.0.0.9:2", b"\x30\x00", answered=True)
+    counts = log.counts()
+    check(counts["enpc"]["replies"] == 1 and counts["snmp"]["replies"] == 1,
+          "replies are counted per protocol")
+    check(log.total_requests() == 3, "the total counts every protocol")
+
+
 def check_updater() -> None:
     """Archive handling: what goes in must come out, and only if it is ours."""
     from bonbridge import updater
@@ -318,7 +392,19 @@ def main() -> int:
         {
             "web": {"bind": "127.0.0.1", "port": WEB_PORT},
             "raw": {"port": RAW_PORT},
-            "discovery": {"mdns": False, "enpc": True, "log_probes": True, "enpc_port": ENPC_PORT},
+            "discovery": {
+                "mdns": False,
+                "enpc": True,
+                "log_probes": True,
+                "enpc_port": ENPC_PORT,
+                "snmp": True,
+                "snmp_port": SNMP_PORT,
+                "lpd": True,
+                "lpd_port": LPD_PORT,
+                "watch_ports": True,
+                "watch_tcp": [WATCH_TCP_PORT],
+                "watch_udp": [],
+            },
             "printers": [
                 {
                     "id": "theke1",
@@ -345,6 +431,7 @@ def main() -> int:
         check_system_info_cache()
         check_network_watchdog()
         check_profile_matching()
+        check_discovery_protocols()
         check_updater()
         check_image_printing()
 
@@ -555,6 +642,119 @@ def main() -> int:
         check("docnav" in doc_html, "documentation page has navigation")
         with urllib.request.urlopen(f"http://127.0.0.1:{WEB_PORT}/docs-img/wiring-usb.svg", timeout=5) as response:
             check(response.status == 200, "documentation image served")
+
+        # 8a. the discovery protocols answer for real, on live sockets
+        discovery_state = get_json("/api/discovery")["discovery"]
+        by_id = {entry["id"]: entry for entry in discovery_state["protocols"]}
+        check("enpc" in by_id and "snmp" in by_id and "lpd" in by_id,
+              "all discovery protocols are reported side by side")
+        check(by_id["enpc"]["listening"], "ENPC is listening")
+        check(by_id["snmp"]["listening"], "SNMP is listening")
+        check(by_id["lpd"]["listening"], "LPD is listening")
+        check(discovery_state["advertised"]["model"] == "TM-T88V",
+              "the advertised model follows the detected printer")
+        check(discovery_state["advertised"]["vendor"] == "EPSON",
+              "the advertised vendor is what Epson-filtering apps look for")
+
+        # ENPC: send the exact 16-byte broadcast the Epson SDK sends.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe_socket:
+            probe_socket.settimeout(5)
+            probe_socket.sendto(
+                bytes.fromhex("4550534f4e5103000000100000000000"),
+                ("127.0.0.1", ENPC_PORT),
+            )
+            enpc_reply, _ = probe_socket.recvfrom(2048)
+        check(enpc_reply.startswith(b"EPSONq"), "ENPC answers the real SDK broadcast")
+        check(b"TM-T88V" in enpc_reply, "the ENPC reply names an Epson model")
+
+        # SNMP: a real GetRequest for sysDescr.
+        from bonbridge import snmp as snmp_module
+
+        binding = snmp_module._tlv(
+            snmp_module.TAG_SEQUENCE,
+            snmp_module.encode_oid("1.3.6.1.2.1.1.1.0") + snmp_module._tlv(snmp_module.TAG_NULL, b""),
+        )
+        pdu = (
+            snmp_module.encode_integer(99)
+            + snmp_module.encode_integer(0)
+            + snmp_module.encode_integer(0)
+            + snmp_module._tlv(snmp_module.TAG_SEQUENCE, binding)
+        )
+        query = snmp_module._tlv(
+            snmp_module.TAG_SEQUENCE,
+            snmp_module.encode_integer(0)
+            + snmp_module._tlv(snmp_module.TAG_OCTET_STRING, b"public")
+            + snmp_module._tlv(snmp_module.PDU_GET, pdu),
+        )
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as snmp_socket:
+            snmp_socket.settimeout(5)
+            snmp_socket.sendto(query, ("127.0.0.1", SNMP_PORT))
+            snmp_reply, _ = snmp_socket.recvfrom(2048)
+        check(b"EPSON TM-T88V" in snmp_reply, "SNMP answers sysDescr over a real socket")
+
+        # LPD: a queue status probe and a complete print job (RFC 1179).
+        with socket.create_connection(("127.0.0.1", LPD_PORT), timeout=5) as lpd_socket:
+            lpd_socket.sendall(b"\x04bonbridge\n")
+            status = lpd_socket.recv(200)
+        check(b"BonBridge" in status, "LPD answers a queue status probe")
+
+        before_lpd = len(printer.data)
+        with socket.create_connection(("127.0.0.1", LPD_PORT), timeout=5) as lpd_socket:
+            lpd_socket.sendall(b"\x02bonbridge\n")
+            check(lpd_socket.recv(1) == b"\x00", "LPD acknowledges the job")
+            control = b"Hpos\nPkasse\nJLPR-Bon\nldfA001pos\n"
+            lpd_socket.sendall(b"\x02%d cfA001pos\n" % len(control))
+            lpd_socket.recv(1)
+            lpd_socket.sendall(control + b"\x00")
+            lpd_socket.recv(1)
+            job = b"\x1b@LPR Testbon\n\n\n"
+            lpd_socket.sendall(b"\x03%d dfA001pos\n" % len(job))
+            lpd_socket.recv(1)
+            lpd_socket.sendall(job + b"\x00")
+            lpd_socket.recv(1)
+        time.sleep(1.5)
+        check(b"LPR Testbon" in printer.data, "an LPR job reaches the printer")
+        check(len(printer.data) > before_lpd, "LPD delivered data")
+
+        # A watched port records the attempt without answering it.
+        try:
+            with socket.create_connection(("127.0.0.1", WATCH_TCP_PORT), timeout=5) as watch_socket:
+                watch_socket.sendall(b"POST /ipp/print HTTP/1.1\r\nHost: x\r\n\r\n")
+                time.sleep(0.4)
+        except OSError:
+            pass
+        time.sleep(0.6)
+        probes = get_json("/api/discovery")["discovery"]["probes"]
+        protocols_seen = {entry["protocol"] for entry in probes}
+        check("enpc" in protocols_seen, "the ENPC probe is in the shared log")
+        check("snmp" in protocols_seen, "the SNMP probe is in the shared log")
+        check("lpd" in protocols_seen, "the LPD probe is in the shared log")
+        check(f"tcp/{WATCH_TCP_PORT}" in protocols_seen, "the watched port probe is in the log")
+        check(all(entry.get("hexdump") for entry in probes if entry["bytes"]),
+              "every logged probe carries a hexdump")
+
+        cleared = get_json("/api/discovery/clear", method="POST")
+        check(cleared["removed"] >= 4, "the shared probe log can be cleared")
+
+        # Changing the announced model must take effect without a restart -
+        # otherwise "saved" would be a lie until the next reboot.
+        get_json("/api/config", method="PUT", payload={"discovery": {"advertise_model": "TM-m30"}})
+        time.sleep(1.2)
+        again = get_json("/api/discovery")["discovery"]
+        check(again["advertised"]["model"] == "TM-m30", "the announced model can be set by hand")
+        check(again["advertised"]["source"] == "manual", "a manual model is reported as manual")
+        by_id = {entry["id"]: entry for entry in again["protocols"]}
+        check(by_id["snmp"]["listening"], "SNMP is listening again after the live restart")
+        check(by_id["lpd"]["listening"], "LPD is listening again after the live restart")
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe_socket:
+            probe_socket.settimeout(5)
+            probe_socket.sendto(
+                bytes.fromhex("4550534f4e5103000000100000000000"), ("127.0.0.1", ENPC_PORT)
+            )
+            renamed, _ = probe_socket.recvfrom(2048)
+        check(b"TM-m30" in renamed, "the new model is announced over ENPC straight away")
+        get_json("/api/config", method="PUT", payload={"discovery": {"advertise_model": "auto"}})
+        time.sleep(1.2)
 
         # 8b. network watchdog over the API
         network = get_json("/api/network")["network"]

@@ -110,18 +110,41 @@ DEFAULTS: Dict[str, Any] = {
         "port": DEFAULT_RAW_PORT,
         "max_connections": 8,
     },
+    #: Being found automatically is not one protocol but four.  A real Epson
+    #: interface board (UB-E04) answers ENPC, SNMP, mDNS and LPD, and different
+    #: apps use different ones - so BonBridge answers all of them and records
+    #: every probe, which turns "the printer is not found" into a measurement.
     "discovery": {
         "mdns": True,
-        # Epson ENPC responder (UDP 3289).  This is what makes BonBridge show
-        # up in the OrderAssist printer search.  Epson does not publish the
-        # protocol, so the reply is best effort - but answering is harmless and
-        # the request log tells us whether the app probes at all.
+        # Epson ENPC responder (UDP 3289).  This is what the Epson ePOS SDK
+        # broadcasts.  Epson does not publish the reply format, so the reply is
+        # best effort - see discovery.py for the variants.
         "enpc": True,
+        "enpc_port": 3289,
+        # echo | epson | both - which shape(s) of ENPC reply to send.
+        "enpc_reply": "both",
+        # SNMP v1 on UDP 161 with community "public", exactly as the UB-E04
+        # does.  Sweeping a subnet with one SNMP query is the most common way
+        # printer discovery is implemented.
+        "snmp": True,
+        "snmp_port": 161,
+        "snmp_community": "public",
+        # LPD/LPR on TCP 515.  Answers queue probes and accepts print jobs.
+        "lpd": True,
+        "lpd_port": 515,
+        # Passive listeners that only record who knocks - IPP, ePOS, SSDP.
+        "watch_ports": True,
+        "watch_tcp": [631, 8008],
+        "watch_udp": [1900],
+        # What BonBridge calls itself in ENPC, SNMP and mDNS.  Apps that filter
+        # for Epson devices match on these, so "auto" uses the detected model
+        # and falls back to a TM model name when nothing was detected.
+        "advertise_vendor": "EPSON",
+        "advertise_model": "auto",
+        "advertise_fallback": "TM-T88V",
         # Log every discovery probe with a hexdump so the reply format can be
         # verified against a real app.
         "log_probes": True,
-        # UDP port of the Epson discovery protocol.  Only changed by the tests.
-        "enpc_port": 3289,
     },
     #: Watches the device's own network connection (see netwatch.py).  Which
     #: printers report an outage is decided per printer via the
