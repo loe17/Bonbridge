@@ -117,8 +117,11 @@ const I18N = {
     'di.advSource.detected': 'erkanntes Modell', 'di.advSource.manual': 'von Hand gesetzt',
     'di.advSource.fallback': 'Rückfallwert, kein Modell erkannt',
     'di.enpcReply': 'ENPC-Antwortform',
-    'di.enpcReply.both': 'beide senden (empfohlen)', 'di.enpcReply.echo': 'nur Spiegelung',
-    'di.enpcReply.epson': 'nur strukturiert',
+    'di.enpcReply.cycle': 'durchprobieren (empfohlen)',
+    'di.enpcReply.all': 'alle auf einmal senden',
+    'di.enpcReplyHelp': 'Die App wiederholt ihre Suche alle paar Sekunden. Im Modus „durchprobieren“ bekommt jede Wiederholung die nächste Antwortform — eine Suche testet damit alle durch. Taucht der Drucker auf, steht unten in der Liste, welche Form zuletzt gesendet wurde; die dann hier fest einstellen.',
+    'di.lastCandidate': 'zuletzt gesendet',
+    'di.candidateList': 'Welche Antwortformen es gibt', 'di.candidate': 'Form',
     'di.snmpOn': 'SNMP beantworten (UDP 161)',
     'di.lpdOn': 'LPD/LPR beantworten (TCP 515)',
     'di.watchOn': 'Weitere Ports mithören (IPP, ePOS, SSDP)',
@@ -285,8 +288,11 @@ const I18N = {
     'di.advSource.detected': 'detected model', 'di.advSource.manual': 'set by hand',
     'di.advSource.fallback': 'fallback, no model detected',
     'di.enpcReply': 'ENPC reply shape',
-    'di.enpcReply.both': 'send both (recommended)', 'di.enpcReply.echo': 'mirrored only',
-    'di.enpcReply.epson': 'structured only',
+    'di.enpcReply.cycle': 'try each in turn (recommended)',
+    'di.enpcReply.all': 'send all at once',
+    'di.enpcReplyHelp': 'The app repeats its search every few seconds. In "try each in turn" mode every retry gets the next reply shape, so one search tries them all. When the printer appears, the list below shows which shape was sent last - pin that one here.',
+    'di.lastCandidate': 'last sent',
+    'di.candidateList': 'The available reply shapes', 'di.candidate': 'Shape',
     'di.snmpOn': 'Answer SNMP (UDP 161)',
     'di.lpdOn': 'Answer LPD/LPR (TCP 515)',
     'di.watchOn': 'Listen on further ports (IPP, ePOS, SSDP)',
@@ -383,7 +389,7 @@ const HELP = {
     'di.raw': 'Sendet Bytes unverändert an den Drucker. Text wird als Text gesendet; reine Hex-Zeichen werden als Bytes interpretiert, z. B. "1B 40" für einen Reset. Nur benutzen, wenn du weißt was du tust.',
     'di.advVendor': 'Der Herstellername, den BonBridge über ENPC, SNMP und mDNS ankündigt. Kassen-Apps, die nur Epson-Drucker anzeigen, vergleichen genau diesen Text. „EPSON“ ist deshalb der sinnvolle Wert, auch wenn im Gerät ein Raspberry Pi steckt — es ist eine Kompatibilitätsangabe, kein Etikettenschwindel.',
     'di.advModel': 'Der Modellname, der angekündigt wird. „auto“ nimmt das erkannte Modell des angeschlossenen Druckers (z. B. TM-T88V) und fällt nur dann auf einen Standardwert zurück, wenn nichts erkannt wurde. Von Hand setzen, wenn die App ein bestimmtes Modell erwartet.',
-    'di.enpcReply': 'Epson veröffentlicht das Antwortformat der Druckersuche nicht. „Beide senden“ verschickt zwei Varianten kurz nacheinander — eine gespiegelte und eine strukturierte. Clients ignorieren, was sie nicht verstehen, zwei kleine Pakete kosten nichts. Nur umstellen, wenn ein Test etwas anderes zeigt.',
+    'di.enpcReply': 'Epson veröffentlicht das Antwortformat der Druckersuche nicht. Deshalb gibt es mehrere Kandidaten — der erste ist die byteweise nachgebaute Antwort eines echten TM-m30, nur mit ausgetauschtem Modellnamen. „Durchprobieren“ nutzt aus, dass die App ihre Suche wiederholt: jede Wiederholung bekommt die nächste Form.',
     'di.snmpOn': 'Beantwortet Statusabfragen auf UDP 161 wie ein echtes Epson-Netzwerkboard. Viele Suchfunktionen fragen einfach das ganze Subnetz per SNMP ab — ohne Antwort ist das Gerät für sie nicht vorhanden.',
     'di.lpdOn': 'Nimmt Verbindungen auf TCP 515 an (klassischer Netzwerkdruck). Dient der Auffindbarkeit und erlaubt zusätzlich echtes Drucken per LPR.',
     'di.watchOn': 'Öffnet zusätzlich passive Lauschposten auf IPP (631), ePOS (8008) und SSDP (1900). Diese antworten nie — sie halten nur fest, wer angeklopft hat. Genau das zeigt, welches Protokoll eine App tatsächlich benutzt.',
@@ -438,7 +444,7 @@ const HELP = {
     'di.raw': 'Sends bytes to the printer unchanged. Text is sent as text; pure hex characters are interpreted as bytes, e.g. "1B 40" for a reset. Only use this if you know what you are doing.',
     'di.advVendor': 'The manufacturer name BonBridge announces over ENPC, SNMP and mDNS. POS apps that only list Epson printers compare exactly this text. "EPSON" is therefore the sensible value even though a Raspberry Pi is inside - it is a compatibility declaration, not a disguise.',
     'di.advModel': 'The model name that is announced. "auto" uses the detected model of the attached printer (e.g. TM-T88V) and only falls back to a default when nothing was detected. Set it by hand if the app expects a particular model.',
-    'di.enpcReply': 'Epson does not publish the reply format of the printer search. "Send both" sends two variants in quick succession - one mirrored, one structured. Clients ignore what they do not understand, and two small packets cost nothing. Only change this if a test shows otherwise.',
+    'di.enpcReply': 'Epson does not publish the reply format of the printer search, so there are several candidates - the first one reproduces the reply of a real TM-m30 byte for byte with only the model name swapped. "Try each in turn" exploits the fact that the app repeats its search: every retry gets the next shape.',
     'di.snmpOn': 'Answers status queries on UDP 161 the way a real Epson network board does. Many search functions simply sweep the whole subnet with SNMP - without an answer the device does not exist for them.',
     'di.lpdOn': 'Accepts connections on TCP 515 (classic network printing). Helps with discovery and additionally allows real LPR printing.',
     'di.watchOn': 'Additionally opens passive listeners on IPP (631), ePOS (8008) and SSDP (1900). These never answer - they only record who knocked. That is precisely what reveals which protocol an app really uses.',
@@ -1337,9 +1343,23 @@ async function renderDiag() {
     '</div><div>' +
     lbl('di.enpcReply', t('di.enpcReply')) +
     '<select id="dsEnpcReply" title="' + esc(help('di.enpcReply')) + '">' +
-    ['both', 'echo', 'epson'].map((v) =>
-      '<option value="' + v + '"' + (discovery.enpc_reply === v ? ' selected' : '') + '>' +
-      t('di.enpcReply.' + v) + '</option>').join('') + '</select>' +
+    '<option value="cycle"' + (discovery.enpc_reply === 'cycle' ? ' selected' : '') + '>' +
+    t('di.enpcReply.cycle') + '</option>' +
+    '<option value="all"' + (discovery.enpc_reply === 'all' ? ' selected' : '') + '>' +
+    t('di.enpcReply.all') + '</option>' +
+    (discovery.enpc_candidates || []).map((c, i) =>
+      '<option value="' + esc(c.id) + '"' + (discovery.enpc_reply === c.id ? ' selected' : '') + '>' +
+      (i + 1) + '. ' + esc(c.id) + '</option>').join('') + '</select>' +
+    '<div class="fieldhelp">' + esc(t('di.enpcReplyHelp')) +
+    (discovery.enpc_last_candidate
+      ? ' ' + t('di.lastCandidate') + ': <b>' + esc(discovery.enpc_last_candidate) + '</b>'
+      : '') + '</div>' +
+    foldable('di.candidates', t('di.candidateList'),
+      '<table><tr><th>#</th><th>' + t('di.candidate') + '</th><th></th></tr>' +
+      (discovery.enpc_candidates || []).map((c, i) =>
+        '<tr><td>' + (i + 1) + '</td><td><code>' + esc(c.id) + '</code></td><td class="muted">' +
+        esc(LANG === 'de' ? c.note_de : c.note_en) + '</td></tr>').join('') +
+      '</table>', false) +
     checkbox('di.snmpOn', 'dsSnmp', t('di.snmpOn'), !STATE.discoveryConfig || STATE.discoveryConfig.snmp !== false)
       .replace('data-f="dsSnmp"', 'id="dsSnmp"') +
     checkbox('di.lpdOn', 'dsLpd', t('di.lpdOn'), !STATE.discoveryConfig || STATE.discoveryConfig.lpd !== false)

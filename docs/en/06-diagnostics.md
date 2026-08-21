@@ -163,6 +163,69 @@ request is listed underneath with its sender and a full hexdump.
 | **Nothing** counts up | The search packets never reach the device. | Are the phone and the device on the same network? Many routers isolate Wi-Fi clients from each other - turn off "client isolation" / "AP isolation" or the guest network. Broadcasts otherwise never arrive. |
 | A row says **"port in use"** | Another service holds the port. | `ss -ulnp \| grep 3289` or `ss -tlnp \| grep 515`. Common culprits: an installed `snmpd` on 161 or `cupsd` on 631. |
 
+### When ENPC counts up but the printer still does not appear
+
+This is the case measured on 2026-08-21: **7 requests on UDP 3289, all
+answered, every other protocol at zero** - and the printer still did not show
+up. That narrowed the question from "which protocol?" to "which reply format?".
+
+The request the app sends looks like this (14 bytes, repeated every three
+seconds):
+
+```
+45 50 53 4f 4e 51  03 00 00 00  00 00 00 00
+E  P  S  O  N  Q   function     length = 0
+```
+
+A real TM-m30 answers it with 147 bytes:
+
+```
+45 50 53 4f 4e 71  03 00 00 00  00 00 00 85  00 05 01 02 01  "TM-m30" 00 00 ...
+E  P  S  O  N  q   function     length = 133  (unknown)       model, padded
+```
+
+Two things follow from that, and neither is a guess:
+
+1. **The length field is big endian.** In the same device's network reply the
+   field reads `00 00 00 17` and exactly 23 bytes follow. Read little endian
+   the same field would be 385,875,968.
+2. **Mirroring the request header cannot work.** The request declares a length
+   of **0**. A reply that mirrors that header and then appends data is telling
+   the client "there is nothing here" - and a parser that trusts the length
+   field never reads further. That was the default behaviour up to version
+   1.3.0.
+
+### Using the app's retries as a format search
+
+The app repeats its search until it is satisfied. That is a free search loop:
+in **"try each in turn"** mode (the default) every retry gets the **next** reply
+shape, and the log records which one was used for each request.
+
+One search therefore tries them all:
+
+| # | Shape | What it sends |
+|---|---|---|
+| 1 | `device` | The reply of a real TM-m30, rebuilt byte for byte with only the model name swapped |
+| 2 | `device+net` | Like 1 plus the network-info reply (MAC, IP, netmask, gateway) |
+| 3 | `device-le` | Like 1 but with a little-endian length field |
+| 4 | `name-padded` | Just the model name, padded to 133 bytes |
+| 5 | `name-plain` | Just the model name with a NUL byte |
+| 6 | `identity` | MAC, IP, netmask, gateway, model, device name in one block |
+| 7 | `legacy-echo` | The old, demonstrably wrong version - for comparison only |
+
+**How to proceed:**
+
+1. *Clear the list*, then start the search in the POS app and **let it run**
+   until the printer appears or the search ends.
+2. If the printer appears: reload the diagnostics page and look at which shape
+   was sent for the **last** request.
+3. **Pin** that shape under *ENPC reply shape* and save. From then on only that
+   one is sent.
+
+If the printer appears for none of the seven, send the hexdump - with the real
+request bytes and the knowledge that all seven are ruled out, the next step is
+far more tightly bounded.
+
 ### The manufacturer and model that are announced
 
 POS apps that search specifically for **Epson** printers filter by manufacturer

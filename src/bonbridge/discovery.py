@@ -1,52 +1,62 @@
 """ENPC responder - Epson network printer discovery on UDP 3289.
 
-Why this exists
----------------
-POS apps that look for "Epson printers" use Epson's own ePOS SDK, whose
-``Discovery`` class broadcasts a UDP datagram to ``255.255.255.255:3289``
-starting with the ASCII magic ``EPSONQ``.  Epson's Ethernet interface for the
-TM series (UB-E04) lists ENPC on UDP 3289 among its protocols, with the packet
-types *Probe, Initialize, Query, Setup and Notify* - so the family is
-``EPSON`` plus one letter, upper case for the request and lower case for the
-matching reply (``EPSONQ`` -> ``EPSONq``, ``EPSONC`` -> ``EPSONc``).
+What is known, and how
+----------------------
+Epson does not publish ENPC.  Everything here rests on two things: public
+reverse-engineering of a real TM-m30, and a capture taken from the actual POS
+app on the actual network this runs on.
 
-Epson does **not** publish the payload format.  The frame layout below comes
-from public reverse-engineering work:
+**The request the app sends** (captured 2026-08-21, repeated every ~3 s from
+the same source port until something is accepted), 14 bytes::
 
-    offset 0-5    magic, e.g. "EPSONQ"
-    offset 6-9    function id (4 bytes)
-    offset 10-13  payload length (4 bytes, little endian)
-    offset 14+    payload
+    45 50 53 4f 4e 51  03 00 00 00  00 00 00 00
+    E  P  S  O  N  Q   function     length = 0
 
-Observed discovery broadcast from the ePOS SDK, 16 bytes::
+**The reply of a real TM-m30** to the same function, 147 bytes::
 
-    45 50 53 4f 4e 51  03 00 00 00  10 00 00 00  00 00
-    E  P  S  O  N  Q   function     length       data
+    45 50 53 4f 4e 71  03 00 00 00  00 00 00 85  00 05 01 02 01
+    E  P  S  O  N  q   function     length = 133  "TM-m30" + NUL padding
 
-Because the *reply* payload is still guesswork, BonBridge can send more than
-one shape of it (``discovery.enpc_reply``):
+and its network-info reply, 37 bytes::
 
-``echo``
-    Mirror the request header verbatim and append the identity.  Safe: no
-    field is invented, so nothing can be wrong except the payload itself.
-``epson``
-    Build a proper frame with a real length field and a structured payload
-    (MAC, IP, netmask, gateway, device name, model), the way a real device is
-    described in the reverse-engineering write-up.
-``both`` (default)
-    Send both, one after the other.  A client that dislikes one usually
-    ignores it and takes the other; two small datagrams cost nothing.
+    45 50 53 4f 4e 71  00 00 00 10  00 00 00 17
+    01 02 00 00 00 00     MAC
+    00 00 04              (unknown)
+    c0 a8 01 09           IP       192.168.1.9
+    ff ff ff 00           netmask  255.255.255.0
+    c0 a8 01 01           gateway  192.168.1.1
+    80 7c                 (unknown)
 
-Every probe is written to the shared probe log with a full hexdump, so one
-press of "search for printers" in the app shows exactly what arrived and
-whether it was answered - see :mod:`bonbridge.probes`.
+Two facts fall out of that, and neither is a guess:
+
+1. **The length field is big endian.**  ``00 00 00 17`` is followed by exactly
+   23 payload bytes; read little endian the same field would be 385 875 968.
+2. **Mirroring the request header cannot work.**  The request declares a
+   payload length of *zero*, so a reply that echoes that header and then
+   appends data is telling the client "there is nothing here" - and a parser
+   that trusts the length field stops reading.  That was the previous default
+   behaviour, and it explains the silence.
+
+What is still unknown is the meaning of the five bytes ``00 05 01 02 01`` in
+front of the model name.  Rather than pick one interpretation and call it
+settled, this module keeps a list of candidate reply layouts (see
+:data:`REPLY_CANDIDATES`) - the first of which simply reproduces the captured
+device reply byte for byte with the model name swapped.
+
+Turning the app's own impatience into a search
+----------------------------------------------
+The app re-broadcasts every three seconds until it is satisfied.  That is a
+free format search: in ``cycle`` mode each retry is answered with the *next*
+candidate, and the probe log names the candidate used for each one.  A single
+press of "search for printers" therefore tries every layout, and whichever one
+was in flight when the printer appeared is the one that is right.
 
 References
 ----------
-* wes4m, "Reverse Engineering Thermal Printers" (ENPC frame layout)
+* wes4m, "Reverse Engineering Thermal Printers" - frame layout and the
+  captured TM-m30 replies reproduced above
   https://wes4m.io/posts/epson_rev/
 * mike42/escpos-php issue #923, "Need help with ENPC protocol 3289"
-  (the observed 16-byte discovery broadcast)
   https://github.com/mike42/escpos-php/issues/923
 * Epson ePOS SDK, ``Discovery.start`` (the official client side)
   https://download4.epson.biz/sec_pubs/pos/reference_en/epos_and/ref_epos_sdk_and_en_discoveryclass_start.html
@@ -62,7 +72,7 @@ import socket
 import struct
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -101,9 +111,6 @@ FUNC_DEVICE_NAME = 0x03000000
 FUNC_NETWORK_INFO = 0x03000010
 FUNC_WHO_IS_HOLDING = 0x03000017
 
-#: Which shape(s) of reply to send - see the module docstring.
-REPLY_STYLES = ("echo", "epson", "both")
-
 #: How many probes to keep for the diagnostics page.
 PROBE_LOG_SIZE = 40
 
@@ -119,26 +126,167 @@ def hexdump(data: bytes, width: int = 16) -> str:
     return "\n".join(lines)
 
 
-def build_frame(magic: bytes, header_tail: bytes, payload: bytes = b"") -> bytes:
-    """``<magic:6><header_tail:8><payload>``.
+def build_frame(
+    magic: bytes, function: bytes, payload: bytes = b"", little_endian: bool = False
+) -> bytes:
+    """``<magic:6><function:4><len(payload):4><payload>``.
 
-    ``header_tail`` is echoed from the request so we do not have to guess the
-    function/length encoding.
+    The length is **big endian**.  That is not a guess: in the captured reply of
+    a real TM-m30 the field reads ``00 00 00 17`` and the payload that follows
+    is exactly 23 bytes, while a little-endian reading would be 385'875'968.
+    """
+    length = struct.pack("<I" if little_endian else ">I", len(payload))
+    return magic + function[:4].ljust(4, b"\x00") + length + payload
+
+
+def build_echo_frame(magic: bytes, header_tail: bytes, payload: bytes = b"") -> bytes:
+    """Mirror the request header verbatim and append a payload.
+
+    Kept only so the old behaviour can still be selected for comparison.  It is
+    structurally broken against a real client: the request declares a payload
+    length of zero, so a parser that trusts the length field never looks at the
+    payload at all.
     """
     return magic + header_tail[:8].ljust(8, b"\x00") + payload
 
 
-def build_structured_frame(magic: bytes, function: bytes, payload: bytes = b"") -> bytes:
-    """A frame with a real length field, the way a device is expected to answer.
+#: Payload of the captured TM-m30 discovery reply, minus the model name.
+#: The meaning of these five bytes is unknown; they are reproduced verbatim
+#: because a real device sent them and the client evidently accepts them.
+DEVICE_PREFIX = b"\x00\x05\x01\x02\x01"
 
-    ``<magic:6><function:4><len(payload):4 little endian><payload>``
-    """
+#: Total payload size of that reply.  The name is NUL-padded up to it.
+DEVICE_PAYLOAD_LEN = 0x85  # 133
+
+#: Trailing bytes of the captured network-info reply, meaning unknown.
+NETWORK_TAIL = b"\x80\x7c"
+
+#: Function id of the network-info reply the device sent unprompted.
+FUNC_NETWORK_REPLY = b"\x00\x00\x00\x10"
+
+
+def device_payload(model: bytes) -> bytes:
+    """The captured discovery payload with our model name substituted."""
+    body = DEVICE_PREFIX + model[: DEVICE_PAYLOAD_LEN - len(DEVICE_PREFIX) - 1]
+    return body.ljust(DEVICE_PAYLOAD_LEN, b"\x00")
+
+
+def network_payload(identity: Dict[str, bytes]) -> bytes:
+    """The captured network-info payload with our own addresses."""
     return (
-        magic
-        + function[:4].ljust(4, b"\x00")
-        + struct.pack("<I", len(payload))
-        + payload
+        identity["mac"]
+        + b"\x00\x00\x04"
+        + identity["ip"]
+        + identity["netmask"]
+        + identity["gateway"]
+        + NETWORK_TAIL
     )
+
+
+#: Candidate reply layouts, most-likely first.
+#:
+#: Each entry is ``(id, description_de, description_en, builder)`` where the
+#: builder returns the list of datagrams to send.  They exist because the
+#: payload format is not published: instead of presenting one interpretation as
+#: fact, BonBridge can try them in turn and record which one it used.
+def _c_device(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    return [build_frame(magic, frame["function_bytes"], device_payload(identity["model"]))]
+
+
+def _c_device_net(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    return [
+        build_frame(magic, frame["function_bytes"], device_payload(identity["model"])),
+        build_frame(magic, FUNC_NETWORK_REPLY, network_payload(identity)),
+    ]
+
+
+def _c_device_le(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    return [
+        build_frame(
+            magic, frame["function_bytes"], device_payload(identity["model"]), little_endian=True
+        )
+    ]
+
+
+def _c_name_padded(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    payload = identity["model"][: DEVICE_PAYLOAD_LEN - 1].ljust(DEVICE_PAYLOAD_LEN, b"\x00")
+    return [build_frame(magic, frame["function_bytes"], payload)]
+
+
+def _c_name_plain(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    return [build_frame(magic, frame["function_bytes"], identity["model"] + b"\x00")]
+
+
+def _c_identity(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    payload = (
+        identity["mac"]
+        + identity["ip"]
+        + identity["netmask"]
+        + identity["gateway"]
+        + identity["model"]
+        + b"\x00"
+        + identity["name"]
+        + b"\x00"
+    )
+    return [build_frame(magic, frame["function_bytes"], payload)]
+
+
+def _c_legacy_echo(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    payload = identity["name"] + b"\x00" + identity["model"] + b"\x00" + identity["mac"] + identity["ip"]
+    return [build_echo_frame(magic, frame["header_tail"], payload)]
+
+
+REPLY_CANDIDATES: List[Dict[str, Any]] = [
+    {
+        "id": "device",
+        "de": "Antwort eines echten TM-m30, Modellname ersetzt (133 Byte, Big Endian)",
+        "en": "Reply of a real TM-m30 with the model name swapped (133 bytes, big endian)",
+        "builder": _c_device,
+    },
+    {
+        "id": "device+net",
+        "de": "Wie 'device', zusätzlich die Netzwerk-Info-Antwort (MAC, IP, Maske, Gateway)",
+        "en": "Like 'device' plus the network-info reply (MAC, IP, netmask, gateway)",
+        "builder": _c_device_net,
+    },
+    {
+        "id": "device-le",
+        "de": "Wie 'device', aber Längenfeld Little Endian - falls der Client anders liest",
+        "en": "Like 'device' but with a little-endian length field, in case the client differs",
+        "builder": _c_device_le,
+    },
+    {
+        "id": "name-padded",
+        "de": "Nur der Modellname, auf 133 Byte mit Nullen aufgefüllt",
+        "en": "Just the model name, NUL-padded to 133 bytes",
+        "builder": _c_name_padded,
+    },
+    {
+        "id": "name-plain",
+        "de": "Nur der Modellname mit abschließender Null, keine Auffüllung",
+        "en": "Just the model name with a terminating NUL, no padding",
+        "builder": _c_name_plain,
+    },
+    {
+        "id": "identity",
+        "de": "MAC, IP, Maske, Gateway, Modell, Gerätename - alles am Stück",
+        "en": "MAC, IP, netmask, gateway, model, device name - all in one block",
+        "builder": _c_identity,
+    },
+    {
+        "id": "legacy-echo",
+        "de": "Alte Fassung: Anfrage-Kopf gespiegelt (Längenfeld bleibt 0 - nachweislich falsch)",
+        "en": "Old behaviour: request header mirrored (length stays 0 - demonstrably wrong)",
+        "builder": _c_legacy_echo,
+    },
+]
+
+CANDIDATE_IDS = [entry["id"] for entry in REPLY_CANDIDATES]
+
+#: ``cycle`` walks the list, one candidate per probe.  Any candidate id pins
+#: that one layout.  ``all`` sends every candidate at once - noisy, but useful
+#: as a last resort when a client only ever sends a single probe.
+REPLY_STYLES = ("cycle", "all", *CANDIDATE_IDS)
 
 
 def parse_frame(data: bytes) -> Optional[Dict[str, Any]]:
@@ -155,7 +303,8 @@ def parse_frame(data: bytes) -> Optional[Dict[str, Any]]:
         "header_tail": header_tail,
         "function_bytes": header_tail[:4],
         "function": function,
-        "declared_length": struct.unpack("<I", header_tail[4:8])[0],
+        "declared_length": struct.unpack(">I", header_tail[4:8])[0],
+        "declared_length_le": struct.unpack("<I", header_tail[4:8])[0],
         "payload": data[HEADER_LEN:],
         "raw": data,
     }
@@ -184,7 +333,7 @@ class EnpcResponder(threading.Thread):
         self.port = port
         self.log_probes = log_probes
         self.model_name = model_name
-        self.reply_style = reply_style if reply_style in REPLY_STYLES else "both"
+        self.reply_style = reply_style if reply_style in REPLY_STYLES else "cycle"
         #: Shared log across all discovery protocols (bonbridge.probes.ProbeLog).
         self.probe_log = probe_log
 
@@ -192,6 +341,9 @@ class EnpcResponder(threading.Thread):
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._local_cache: Optional[set] = None
+        #: Position in REPLY_CANDIDATES per peer, for ``cycle`` mode.
+        self._cycle: Dict[str, int] = {}
+        self.last_candidate = ""
 
         self.requests = 0
         self.replies = 0
@@ -271,8 +423,13 @@ class EnpcResponder(threading.Thread):
             return
 
         assert frame is not None
-        replies = self._build_replies(frame)
-        entry["summary"] = f"{entry['magic']} function {entry['function']} -> {self.reply_style}"
+        # The cycle counter is per source address, so one app walking through
+        # its retries gets candidate 1, 2, 3 ... in order.
+        replies, candidate = self._build_replies(frame, peer[0])
+        entry["candidate"] = candidate
+        entry["summary"] = (
+            f"{entry['magic']} function {entry['function']} -> Antwort '{candidate}'"
+        )
         entry["reply_hexdump"] = "\n\n".join(hexdump(reply) for reply in replies)
 
         sent_to: List[str] = []
@@ -371,54 +528,39 @@ class EnpcResponder(threading.Thread):
             "gateway": packed(netwatch.default_gateway()),
         }
 
-    def _build_replies(self, frame: Dict[str, Any]) -> List[bytes]:
-        """One or two datagrams, depending on ``reply_style``."""
+    def _next_candidate(self, peer_key: str) -> Dict[str, Any]:
+        """Which layout to use for this probe.
+
+        In ``cycle`` mode the counter is kept **per peer**, so one app working
+        through its retries walks the list from the top rather than sharing a
+        global position with anything else on the network.
+        """
+        if self.reply_style in CANDIDATE_IDS:
+            return next(c for c in REPLY_CANDIDATES if c["id"] == self.reply_style)
+        with self._lock:
+            index = self._cycle.get(peer_key, 0)
+            self._cycle[peer_key] = index + 1
+        return REPLY_CANDIDATES[index % len(REPLY_CANDIDATES)]
+
+    def _build_replies(self, frame: Dict[str, Any], peer_key: str) -> Tuple[List[bytes], str]:
+        """Datagrams to send, plus the name of the layout that produced them."""
         magic = reply_magic(frame["magic"]) or MAGIC_QUERY_REPLY
         identity = self._identity()
 
-        replies: List[bytes] = []
-        if self.reply_style in ("echo", "both"):
-            replies.append(build_frame(magic, frame["header_tail"], self._payload(frame, identity)))
-        if self.reply_style in ("epson", "both"):
-            payload = self._payload(frame, identity, structured=True)
-            replies.append(build_structured_frame(magic, frame["function_bytes"], payload))
-        return replies
+        # "Who is holding this printer?" has a known answer and no room for
+        # variants: all zeroes means "nobody, it is free".
+        if frame["function"] == FUNC_WHO_IS_HOLDING:
+            return [build_frame(magic, frame["function_bytes"], b"\x00" * 4)], "who-is-holding"
 
-    def _payload(
-        self, frame: Dict[str, Any], identity: Dict[str, bytes], structured: bool = False
-    ) -> bytes:
-        """What goes after the header.
+        if self.reply_style == "all":
+            datagrams: List[bytes] = []
+            for candidate in REPLY_CANDIDATES:
+                datagrams.extend(candidate["builder"](frame, magic, identity))
+            return datagrams, "all"
 
-        The layout of a real device's reply is not published.  The structured
-        variant follows the description from the reverse-engineering write-up
-        (model name, MAC, IP configuration); the echo variant simply puts the
-        identity where a client scanning for an ASCII model name will find it.
-        """
-        function = frame["function"]
-        if function == FUNC_WHO_IS_HOLDING:
-            # "Nobody is holding this printer" - all zeroes means free.
-            return b"\x00" * 4
-        if structured:
-            return (
-                identity["mac"]
-                + identity["ip"]
-                + identity["netmask"]
-                + identity["gateway"]
-                + identity["model"]
-                + b"\x00"
-                + identity["name"]
-                + b"\x00"
-            )
-        if function == FUNC_NETWORK_INFO:
-            return identity["mac"] + identity["ip"] + identity["name"] + b"\x00"
-        return (
-            identity["name"]
-            + b"\x00"
-            + identity["model"]
-            + b"\x00"
-            + identity["mac"]
-            + identity["ip"]
-        )
+        candidate = self._next_candidate(peer_key)
+        self.last_candidate = candidate["id"]
+        return candidate["builder"](frame, magic, identity), candidate["id"]
 
     def _remember(self, entry: Dict[str, Any], data: bytes = b"") -> None:
         # The shared log is what the diagnostics page shows across all
@@ -432,6 +574,7 @@ class EnpcResponder(threading.Thread):
                 data,
                 answered=entry["answered"],
                 summary=entry.get("summary", ""),
+                candidate=entry.get("candidate", ""),
             )
         if not self.log_probes:
             return
@@ -455,18 +598,24 @@ class EnpcResponder(threading.Thread):
                 "last_peer": self.last_peer,
                 "error": self.last_error,
                 "probes": list(self.probes),
+                "reply_style": self.reply_style,
+                "last_candidate": self.last_candidate,
+                "candidates": [
+                    {"id": c["id"], "note_de": c["de"], "note_en": c["en"]}
+                    for c in REPLY_CANDIDATES
+                ],
                 "note_de": (
-                    "Epson veroeffentlicht das Suchprotokoll nicht. Wenn hier Anfragen "
-                    "auftauchen, erreicht die Suche das Geraet - dann laesst sich das "
-                    "Antwortformat anhand des Hexdumps nachziehen. Wenn hier nichts "
-                    "auftaucht, benutzt die App kein ENPC und der manuelle Weg ueber die "
-                    "IP-Adresse bleibt der richtige."
+                    "Epson veroeffentlicht das Antwortformat nicht. Im Modus 'cycle' "
+                    "wird jede Wiederholung der App mit der naechsten Kandidatenform "
+                    "beantwortet - eine Suche probiert damit alle durch. Taucht der "
+                    "Drucker auf, steht im Protokoll, welche Form zuletzt gesendet "
+                    "wurde; diese laesst sich dann fest einstellen."
                 ),
                 "note_en": (
-                    "Epson does not publish the discovery protocol. If probes show up "
-                    "here the search reaches the device and the reply format can be "
-                    "corrected from the hexdump. If nothing shows up the app does not "
-                    "use ENPC and adding the printer by IP remains the way to go."
+                    "Epson does not publish the reply format. In 'cycle' mode each "
+                    "retry of the app is answered with the next candidate layout, so "
+                    "one search tries them all. When the printer appears, the log "
+                    "shows which layout was sent last - that one can then be pinned."
                 ),
             }
 

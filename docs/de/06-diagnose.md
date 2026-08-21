@@ -168,6 +168,70 @@ einzelne Anfrage steht darunter mit Absender und vollständigem Hexdump.
 | **Gar nichts** zählt hoch | Die Suchpakete erreichen das Gerät nicht. | Sind Handy und Gerät im selben Netz? Viele Router trennen WLAN-Clients voneinander – „Client Isolation" / „AP Isolation" bzw. Gäste-WLAN abschalten. Broadcasts kommen sonst nie an. |
 | Eine Zeile steht auf **„Port belegt"** | Ein anderer Dienst hat den Port. | `ss -ulnp \| grep 3289` bzw. `ss -tlnp \| grep 515`. Häufig: ein installierter `snmpd` auf 161 oder `cupsd` auf 631. |
 
+### Wenn ENPC hochzählt, der Drucker aber nicht erscheint
+
+Das ist der Fall, der am 21.08.2026 gemessen wurde: **7 Anfragen auf UDP 3289,
+alle beantwortet, alle anderen Protokolle bei null** — und der Drucker tauchte
+trotzdem nicht auf. Damit war die Frage nicht mehr „welches Protokoll?", sondern
+nur noch „welches Antwortformat?".
+
+Die Anfrage der App sieht so aus (14 Byte, alle drei Sekunden wiederholt):
+
+```
+45 50 53 4f 4e 51  03 00 00 00  00 00 00 00
+E  P  S  O  N  Q   Funktion     Länge = 0
+```
+
+Ein echter TM-m30 antwortet darauf mit 147 Byte:
+
+```
+45 50 53 4f 4e 71  03 00 00 00  00 00 00 85  00 05 01 02 01  "TM-m30" 00 00 …
+E  P  S  O  N  q   Funktion     Länge = 133  (unbekannt)      Modell, aufgefüllt
+```
+
+Daraus folgen zwei Dinge, die **keine Vermutung** sind:
+
+1. **Das Längenfeld ist Big Endian.** In der Netzwerk-Antwort desselben Geräts
+   steht `00 00 00 17`, und es folgen exakt 23 Byte. Little Endian gelesen wäre
+   dasselbe Feld 385 875 968.
+2. **Den Anfrage-Kopf zu spiegeln kann nicht funktionieren.** Die Anfrage
+   deklariert Länge **0**. Eine Antwort, die diesen Kopf spiegelt und dann Daten
+   anhängt, sagt dem Client „hier ist nichts" — und ein Parser, der dem
+   Längenfeld glaubt, liest gar nicht erst weiter. Genau das war bis
+   Version 1.3.0 das Standardverhalten.
+
+### Die Wiederholungen der App als Formatsuche nutzen
+
+Die App wiederholt ihre Suche, bis sie zufrieden ist. Das ist eine kostenlose
+Suchschleife: Im Modus **„durchprobieren"** (Standard) bekommt jede Wiederholung
+die **nächste** Antwortform, und im Protokoll steht bei jeder Anfrage, welche
+verwendet wurde.
+
+Eine einzige Suche testet damit alle Formen durch:
+
+| # | Form | Was sie sendet |
+|---|---|---|
+| 1 | `device` | Die Antwort eines echten TM-m30, byteweise nachgebaut, nur der Modellname ersetzt |
+| 2 | `device+net` | Wie 1, zusätzlich die Netzwerk-Info-Antwort (MAC, IP, Maske, Gateway) |
+| 3 | `device-le` | Wie 1, aber Längenfeld Little Endian |
+| 4 | `name-padded` | Nur der Modellname, auf 133 Byte aufgefüllt |
+| 5 | `name-plain` | Nur der Modellname mit Null-Byte |
+| 6 | `identity` | MAC, IP, Maske, Gateway, Modell, Gerätename am Stück |
+| 7 | `legacy-echo` | Die alte, nachweislich falsche Fassung — nur zum Vergleich |
+
+**So gehst du vor:**
+
+1. *Liste leeren*, dann in der Kassen-App die Suche starten und **laufen
+   lassen**, bis der Drucker erscheint oder die Suche endet.
+2. Erscheint der Drucker: Diagnoseseite neu laden und nachsehen, welche Form
+   bei der **letzten** Anfrage gesendet wurde.
+3. Diese Form unter *ENPC-Antwortform* **fest einstellen** und speichern. Ab
+   dann wird immer sie gesendet.
+
+Erscheint der Drucker bei keiner der sieben Formen, schick mir den Hexdump —
+mit den echten Anfragebytes und dem Wissen, dass alle sieben ausscheiden, ist
+der nächste Schritt sehr viel enger eingegrenzt.
+
 ### Hersteller und Modell, die angekündigt werden
 
 Kassen-Apps, die gezielt nach **Epson**-Druckern suchen, filtern nach

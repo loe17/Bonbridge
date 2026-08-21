@@ -121,8 +121,11 @@ DEFAULTS: Dict[str, Any] = {
         # best effort - see discovery.py for the variants.
         "enpc": True,
         "enpc_port": 3289,
-        # echo | epson | both - which shape(s) of ENPC reply to send.
-        "enpc_reply": "both",
+        # Which ENPC reply layout to send.  "cycle" answers each retry of the
+        # searching app with the next candidate, so one search run tries them
+        # all; the probe log names the one that was used.  A candidate id
+        # (e.g. "device") pins that layout once it is known to work.
+        "enpc_reply": "cycle",
         # SNMP v1 on UDP 161 with community "public", exactly as the UB-E04
         # does.  Sweeping a subnet with one SNMP query is the most common way
         # printer discovery is implemented.

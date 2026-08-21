@@ -238,15 +238,62 @@ def check_discovery_protocols() -> None:
     check(discovery.reply_magic(b"EPSONq") is None, "a reply is not treated as a request")
     check(discovery.reply_magic(b"HPHPQ!") is None, "a foreign magic is ignored")
 
-    # The 16-byte broadcast that the Epson ePOS SDK actually sends.
-    observed = bytes.fromhex("4550534f4e5103000000100000000000")
+    # The exact 14-byte broadcast captured from the POS app on 2026-08-21.
+    observed = bytes.fromhex("4550534f4e51030000000000000000")[:14]
     frame = discovery.parse_frame(observed)
-    check(frame is not None and frame["magic"] == b"EPSONQ", "the observed SDK broadcast parses")
+    check(frame is not None and frame["magic"] == b"EPSONQ", "the captured app broadcast parses")
+    check(frame["declared_length"] == 0, "the captured request declares a payload length of zero")
 
-    structured = discovery.build_structured_frame(b"EPSONq", b"\x03\x00\x00\x00", b"payload")
-    check(structured.startswith(b"EPSONq"), "structured reply carries the reply magic")
-    length = int.from_bytes(structured[10:14], "little")
-    check(length == len(b"payload"), f"structured reply declares its payload length ({length})")
+    # The length field is big endian.  Proof, not preference: in the captured
+    # reply of a real TM-m30 the field reads 00 00 00 17 and exactly 23 payload
+    # bytes follow.
+    real_network_reply = bytes.fromhex(
+        "4550534f4e7100000010000000170102000000000000" "04c0a80109ffffff00c0a8010180" "7c"
+    )
+    declared = int.from_bytes(real_network_reply[10:14], "big")
+    check(
+        declared == len(real_network_reply) - 14,
+        f"big-endian length matches the real device reply ({declared} bytes)",
+    )
+    check(
+        int.from_bytes(real_network_reply[10:14], "little") != len(real_network_reply) - 14,
+        "a little-endian reading of the same field does not match",
+    )
+
+    # Every candidate must declare the length it actually carries.  The one
+    # exception is the legacy echo, which is kept precisely to show it cannot.
+    identity = {
+        "name": b"Tresen",
+        "model": b"TM-T88V",
+        "mac": bytes.fromhex("b827eb112233"),
+        "ip": bytes([192, 168, 178, 50]),
+        "netmask": bytes([255, 255, 255, 0]),
+        "gateway": bytes([192, 168, 178, 1]),
+    }
+    magic = discovery.reply_magic(frame["magic"])
+    for candidate in discovery.REPLY_CANDIDATES:
+        for datagram in candidate["builder"](frame, magic, identity):
+            payload_len = len(datagram) - 14
+            big = int.from_bytes(datagram[10:14], "big")
+            little = int.from_bytes(datagram[10:14], "little")
+            consistent = big == payload_len or little == payload_len
+            if candidate["id"] == "legacy-echo":
+                check(not consistent, "the legacy echo is proven to declare a wrong length")
+            else:
+                check(consistent, f"candidate '{candidate['id']}' declares its real length")
+            check(datagram.startswith(b"EPSONq"), f"candidate '{candidate['id']}' replies as EPSONq")
+
+    # The first candidate reproduces the captured device reply byte for byte,
+    # up to the model name itself.
+    real_discovery_reply = bytes.fromhex("4550534f4e71030000000000008500050102 01544d2d6d3330".replace(" ", ""))
+    ours = discovery.REPLY_CANDIDATES[0]["builder"](frame, magic, identity)[0]
+    check(len(ours) == 14 + 133, f"the device candidate is 147 bytes like the original ({len(ours)})")
+    check(
+        ours[:19] == real_discovery_reply[:19],
+        "the device candidate matches the real reply up to the model name",
+    )
+    check(b"TM-T88V" in ours, "the device candidate carries our own model name")
+    check(ours[19 + 7 :].strip(b"\x00") == b"", "the model name is NUL-padded to the full length")
 
     # -- SNMP: encode a real request, decode our own response --------------
     mib = snmp.build_mib(model="TM-T88V", device_name="Theke", serial="S1", mac=b"\x01\x02\x03\x04\x05\x06")
@@ -666,6 +713,35 @@ def main() -> int:
             enpc_reply, _ = probe_socket.recvfrom(2048)
         check(enpc_reply.startswith(b"EPSONq"), "ENPC answers the real SDK broadcast")
         check(b"TM-T88V" in enpc_reply, "the ENPC reply names an Epson model")
+        check(
+            int.from_bytes(enpc_reply[10:14], "big") == len(enpc_reply) - 14,
+            "the live ENPC reply declares the length it actually carries",
+        )
+
+        # The app repeats its search every few seconds; each retry has to be
+        # answered with the *next* candidate, so one search tries them all.
+        seen_shapes = {enpc_reply}
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as cycle_socket:
+            cycle_socket.settimeout(5)
+            for _ in range(len(__import__("bonbridge.discovery", fromlist=["x"]).REPLY_CANDIDATES)):
+                cycle_socket.sendto(
+                    bytes.fromhex("4550534f4e51030000000000000000")[:14],
+                    ("127.0.0.1", ENPC_PORT),
+                )
+                try:
+                    while True:
+                        datagram, _ = cycle_socket.recvfrom(2048)
+                        seen_shapes.add(datagram)
+                        cycle_socket.settimeout(0.4)
+                except socket.timeout:
+                    cycle_socket.settimeout(5)
+        check(len(seen_shapes) >= 4, f"retries walk through the candidates ({len(seen_shapes)} shapes)")
+        used = {
+            entry.get("candidate")
+            for entry in get_json("/api/discovery")["discovery"]["probes"]
+            if entry["protocol"] == "enpc"
+        }
+        check(len(used) >= 4, f"the log names a different candidate per retry ({sorted(used)})")
 
         # SNMP: a real GetRequest for sysDescr.
         from bonbridge import snmp as snmp_module

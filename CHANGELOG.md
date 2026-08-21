@@ -4,6 +4,55 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-08-21
+
+The measurement from 1.3.0 paid off, and it found a real bug.
+
+### What the measurement showed
+
+A capture from the actual POS app on the actual network: **7 requests on
+UDP 3289, all answered, every other protocol at zero.** So the app does use
+ENPC and nothing else, the packets do arrive, and the question was never
+"which protocol" but "which reply format".
+
+The request is 14 bytes and declares a payload length of **zero**:
+
+    45 50 53 4f 4e 51  03 00 00 00  00 00 00 00
+
+### Fixed
+
+- **The default reply was structurally impossible to parse.** It mirrored the
+  request header - including that zero length - and then appended a payload.
+  A client that trusts the length field is told there is nothing to read, and
+  stops. This is why answering "worked" and yet nothing was ever found.
+- **The length field is big endian, not little endian.** Proof rather than
+  preference: in the captured reply of a real TM-m30 the field reads
+  `00 00 00 17` and exactly 23 payload bytes follow; a little-endian reading of
+  the same four bytes is 385,875,968. The previous structured reply used
+  little endian and was therefore also unparsable.
+
+### Added
+
+- **Seven candidate reply layouts**, the first of which reproduces the captured
+  TM-m30 discovery reply byte for byte with only the model name substituted -
+  identical to the original up to offset 19, where the name itself begins.
+- **`cycle` mode, now the default: the app's own retries become a format
+  search.** The app re-broadcasts every three seconds until it is satisfied, so
+  each retry is answered with the next candidate and the probe log names the
+  one used. A single press of "search for printers" tries every layout, and
+  whichever was in flight when the printer appeared is the right one - it can
+  then be pinned in the web interface.
+- The candidate list, with a description of each layout and the one last used,
+  is shown in *Diagnostics -> Automatic printer search*.
+- `all` mode sends every candidate at once, for clients that only ever send a
+  single probe.
+
+### Changed
+
+- The probe log records the reply layout per request, not just "answered".
+- The ENPC module documents the captured request and both captured device
+  replies verbatim, so the next person does not have to re-derive them.
+
 ## [1.3.0] - 2026-08-21
 
 Being found automatically, taken seriously.
@@ -426,6 +475,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.3.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.1
 [1.3.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.0
 [1.2.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.2.0
 [1.1.2]: https://github.com/loe17/Bonbridge/releases/tag/v1.1.2

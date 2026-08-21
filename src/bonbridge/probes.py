@@ -60,6 +60,7 @@ class ProbeLog:
         reply: Optional[bytes] = None,
         summary: str = "",
         note: str = "",
+        **extra: Any,
     ) -> Dict[str, Any]:
         entry = {
             "time": time.time(),
@@ -73,6 +74,8 @@ class ProbeLog:
             "summary": summary,
             "note": note,
         }
+        # Protocol-specific detail (e.g. which ENPC reply layout was used).
+        entry.update(extra)
         with self._lock:
             counter = self._counts.setdefault(protocol, {"requests": 0, "replies": 0})
             counter["requests"] += 1

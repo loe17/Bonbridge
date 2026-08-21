@@ -242,7 +242,7 @@ class BonBridge:
                 log_probes=bool(settings.get("log_probes", True)),
                 port=int(settings.get("enpc_port") or discovery.ENPC_PORT),
                 model_name=identity["model"],
-                reply_style=str(settings.get("enpc_reply") or "both"),
+                reply_style=str(settings.get("enpc_reply") or "cycle"),
                 probe_log=self.probe_log,
             )
             self.enpc.start()
@@ -1217,7 +1217,12 @@ class BonBridge:
                 "source": identity["source"],
                 "name": identity["name"],
             },
-            "enpc_reply": str(settings.get("enpc_reply") or "both"),
+            "enpc_reply": str(settings.get("enpc_reply") or "cycle"),
+            "enpc_candidates": [
+                {"id": c["id"], "note_de": c["de"], "note_en": c["en"]}
+                for c in discovery.REPLY_CANDIDATES
+            ],
+            "enpc_last_candidate": self.enpc.last_candidate if self.enpc else "",
             "log_probes": bool(settings.get("log_probes", True)),
             "protocols": protocols,
             "total_requests": self.probe_log.total_requests(),
