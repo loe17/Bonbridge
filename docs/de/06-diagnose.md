@@ -170,51 +170,71 @@ einzelne Anfrage steht darunter mit Absender und vollständigem Hexdump.
 
 ### Wenn ENPC hochzählt, der Drucker aber nicht erscheint
 
-Das ist der Fall, der am 21.08.2026 gemessen wurde: **7 Anfragen auf UDP 3289,
-alle beantwortet, alle anderen Protokolle bei null** — und der Drucker tauchte
-trotzdem nicht auf. Damit war die Frage nicht mehr „welches Protokoll?", sondern
-nur noch „welches Antwortformat?".
+Das ist der gemessene Fall: **Anfragen auf UDP 3289, alle beantwortet, alle
+anderen Protokolle bei null** — und der Drucker taucht trotzdem nicht auf.
+Damit ist die Frage nicht mehr „welches Protokoll", sondern nur noch „welches
+Antwortformat".
 
-Die Anfrage der App sieht so aus (14 Byte, alle drei Sekunden wiederholt):
+#### Der Kopf, richtig gelesen
 
-```
-45 50 53 4f 4e 51  03 00 00 00  00 00 00 00
-E  P  S  O  N  Q   Funktion     Länge = 0
-```
+Lange sah es so aus, als bestünde der ENPC-Kopf aus einer 4-Byte-Funktion und
+einer 4-Byte-Länge. Das ist falsch. Ein Wireshark-Dissektor aus öffentlicher
+Analyse zeigt **acht Felder**, und alle drei vorliegenden echten Pakete passen
+exakt dazu:
 
-Ein echter TM-m30 antwortet darauf mit 147 Byte:
+| Offset | Länge | Feld |
+|---|---|---|
+| 0 | 5 | `EPSON` |
+| 5 | 1 | Pakettyp: `Q`/`C` = Anfrage, `q`/`c` = Antwort |
+| 6 | 1 | **Gerätetyp**: `0x03` = Drucker, `0x00` = Netzwerkschnittstelle |
+| 7 | 1 | Gerätenummer (`0x00`) |
+| 8 | 2 | **Funktion** (16 Bit): `0x0000` Basisinfo, `0x0010` Status, `0x0017` „wer belegt den Drucker" |
+| 10 | 2 | **Ergebniscode** (nur Antworten): `0x0000` = in Ordnung, `0xFFFF` = Funktion nicht unterstützt |
+| 12 | 2 | **Nutzdatenlänge** (16 Bit) |
+| 14 | n | Nutzdaten |
 
-```
-45 50 53 4f 4e 71  03 00 00 00  00 00 00 85  00 05 01 02 01  "TM-m30" 00 00 …
-E  P  S  O  N  q   Funktion     Länge = 133  (unbekannt)      Modell, aufgefüllt
-```
+Das erklärt zwei Fehler, die vorher unsichtbar waren:
 
-Daraus folgen zwei Dinge, die **keine Vermutung** sind:
+1. **Die Anfrage-Kopf-Spiegelung war strukturell unmöglich.** Die Anfrage
+   deklariert Länge **0**; eine Antwort, die diesen Kopf spiegelt und dann Daten
+   anhängt, sagt dem Client „hier ist nichts".
+2. **Ein 32-Bit-Längenfeld gibt es nicht.** Wer die Länge als 32 Bit schreibt,
+   trifft zufällig das Richtige, solange sie klein ist — schreibt sie aber
+   jemand Little Endian, landet das obere Byte im **Ergebniscode**, und die
+   Antwort meldet einen Fehler statt eines Druckers.
 
-1. **Das Längenfeld ist Big Endian.** In der Netzwerk-Antwort desselben Geräts
-   steht `00 00 00 17`, und es folgen exakt 23 Byte. Little Endian gelesen wäre
-   dasselbe Feld 385 875 968.
-2. **Den Anfrage-Kopf zu spiegeln kann nicht funktionieren.** Die Anfrage
-   deklariert Länge **0**. Eine Antwort, die diesen Kopf spiegelt und dann Daten
-   anhängt, sagt dem Client „hier ist nichts" — und ein Parser, der dem
-   Längenfeld glaubt, liest gar nicht erst weiter. Genau das war bis
-   Version 1.3.0 das Standardverhalten.
+#### Die fünf Anfragen, die ein echtes Gerät beantwortet
 
-### Die Wiederholungen der App als Formatsuche nutzen
+| Gerätetyp | Funktion | Antwort eines TM-m30 |
+|---|---|---|
+| `0x00` Netzwerk | `0x0000` | Schnittstellenname (33 Byte) + MAC + Konstanten, 54 Byte |
+| `0x03` Drucker | `0x0000` | `00 05 01 02 01` + Modellname im 128-Byte-Feld, 133 Byte |
+| `0x00` Netzwerk | `0x0010` | MAC, IP, Netzmaske, Gateway, 23 Byte |
+| `0x03` Drucker | `0x0010` | Status-Blob, 13 Byte |
+| `0x03` Drucker | `0x0017` | Vier Null-Bytes = „niemand belegt den Drucker" |
+
+BonBridge beantwortet seit 1.3.2 **jede dieser Anfragen einzeln und richtig**,
+statt auf alles dieselbe Antwort zu schicken. Anfragen ohne bekannte Vorlage
+werden ehrlich mit „Funktion nicht unterstützt" beantwortet — eine erfundene
+Antwort wäre schlimmer, weil der Client sie glaubt.
+
+Wichtig ist besonders die letzte Zeile: Antwortet ein Gerät auf „wer belegt den
+Drucker" **nicht** mit Nullen, gilt der Drucker als von einem anderen Rechner
+belegt und wird nicht angeboten.
+
+#### Die Wiederholungen der App als Formatsuche nutzen
 
 Die App wiederholt ihre Suche, bis sie zufrieden ist. Das ist eine kostenlose
-Suchschleife: Im Modus **„durchprobieren"** (Standard) bekommt jede Wiederholung
-die **nächste** Antwortform, und im Protokoll steht bei jeder Anfrage, welche
-verwendet wurde.
-
-Eine einzige Suche testet damit alle Formen durch:
+Suchschleife: Im Modus **„durchprobieren"** (Standard) bekommt jede
+Wiederholung die **nächste** Antwortform, und im Protokoll steht bei jeder
+Anfrage, welche verwendet wurde.
 
 | # | Form | Was sie sendet |
 |---|---|---|
-| 1 | `device` | Die Antwort eines echten TM-m30, byteweise nachgebaut, nur der Modellname ersetzt |
-| 2 | `device+net` | Wie 1, zusätzlich die Netzwerk-Info-Antwort (MAC, IP, Maske, Gateway) |
-| 3 | `device-le` | Wie 1, aber Längenfeld Little Endian |
-| 4 | `name-padded` | Nur der Modellname, auf 133 Byte aufgefüllt |
+| 1 | `emulator` | Jede Anfrage einzeln beantwortet wie von einem echten TM-m30 |
+| 2 | `emulator+all` | Wie 1, schickt zusätzlich Name, Adressen und Status unaufgefordert mit |
+| 3 | `emulator-literal` | Wie 1, aber mit dem Schnittstellennamen aus dem Originalmitschnitt |
+| 4 | `name-padded` | Nur der Modellname, auf 133 Byte aufgefüllt, ohne Präfix |
 | 5 | `name-plain` | Nur der Modellname mit Null-Byte |
 | 6 | `identity` | MAC, IP, Maske, Gateway, Modell, Gerätename am Stück |
 | 7 | `legacy-echo` | Die alte, nachweislich falsche Fassung — nur zum Vergleich |
@@ -225,14 +245,15 @@ Eine einzige Suche testet damit alle Formen durch:
    lassen**, bis der Drucker erscheint oder die Suche endet.
 2. Erscheint der Drucker: Diagnoseseite neu laden und nachsehen, welche Form
    bei der **letzten** Anfrage gesendet wurde.
-3. Diese Form unter *ENPC-Antwortform* **fest einstellen** und speichern. Ab
-   dann wird immer sie gesendet.
+3. Diese Form unter *ENPC-Antwortform* **fest einstellen** und speichern.
 
-Erscheint der Drucker bei keiner der sieben Formen, schick mir den Hexdump —
-mit den echten Anfragebytes und dem Wissen, dass alle sieben ausscheiden, ist
-der nächste Schritt sehr viel enger eingegrenzt.
+Erscheint der Drucker bei keiner Form, hilft das Protokoll weiter: Es zeigt
+jetzt Gerätetyp und Funktion jeder Anfrage im Klartext. Tauchen dort **andere
+Funktionen als `0x0000`** auf, kommt die App weiter als bisher — dann fehlt nur
+noch eine Vorlage. Bleibt es bei einer einzigen, ständig wiederholten Anfrage,
+lehnt die App die Antwort selbst ab.
 
-### Hersteller und Modell, die angekündigt werden
+### Hersteller und Modell, die angekündigt werden### Hersteller und Modell, die angekündigt werden
 
 Kassen-Apps, die gezielt nach **Epson**-Druckern suchen, filtern nach
 Herstellername und Modell. Diese beiden Werte entscheiden also, ob das Gerät in

@@ -153,7 +153,8 @@ Epson does **not** publish the reply format. The frame layout in
 analysis, which is why BonBridge can send several reply variants and logs every
 request with a hexdump instead of presenting a guess as fact:
 
-* [wes4m: "Reverse Engineering Thermal Printers"](https://wes4m.io/posts/epson_rev/) - frame layout `EPSONQ`/`EPSONq`, `EPSONC`/`EPSONc`, function numbers
+* [BlackLotus/epson-stuff - `enpc.lua`](https://github.com/BlackLotus/epson-stuff/blob/master/enpc.lua) - **Wireshark dissector with the complete header layout**: device type, device number, function (16 bit), result code, payload length (16 bit). The authoritative source for `discovery.py`
+* [wes4m: "Reverse Engineering Thermal Printers"](https://wes4m.io/posts/epson_rev/) - captures from a real TM-m30 and a working emulator with all five reply templates
 * [mike42/escpos-php issue #923: "Need help with ENPC protocol 3289"](https://github.com/mike42/escpos-php/issues/923) - the observed 16-byte ePOS SDK search packet
 * [Epson ePOS SDK: `Discovery.start`](https://download4.epson.biz/sec_pubs/pos/reference_en/epos_and/ref_epos_sdk_and_en_discoveryclass_start.html) - the official client side
 

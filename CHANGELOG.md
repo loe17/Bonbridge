@@ -4,6 +4,60 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.2] - 2026-08-22
+
+The ENPC header was misread. It has eight fields, not two.
+
+### The finding
+
+A Wireshark dissector published from independent analysis
+([BlackLotus/epson-stuff](https://github.com/BlackLotus/epson-stuff/blob/master/enpc.lua))
+gives the real header, and all three real packets available - the query captured
+from the POS app and two replies from a TM-m30 - fit it exactly:
+
+    0   5   "EPSON"
+    5   1   packet type: Q/C request, q/c reply
+    6   1   device type: 0x03 printer, 0x00 network interface
+    7   1   device number
+    8   2   function (16 bit): 0x0000 basic info, 0x0010 status, 0x0017 who-is-holding
+    10  2   result code (replies): 0x0000 fine, 0xFFFF function not supported
+    12  2   payload length (16 bit)
+    14  n   payload
+
+What looked like "4-byte function + 4-byte length" is really
+*device type + device number + function* and *result code + length*.
+
+### Fixed
+
+- **Every query got the same answer.** The device type and function say *what
+  is being asked* - the printer for its name, the network interface for its
+  addresses - and BonBridge replied to all of them with the model name. Each of
+  the five known queries is now answered with the payload a real TM-m30 sends
+  for it, and the device type, device number and function are echoed correctly.
+- **A query with no known template is now answered with result code
+  `0xFFFF` ("function not supported")** instead of a plausible-looking
+  invention. A wrong answer is worse than an admitted gap, because the client
+  believes it.
+- **"Who is holding this printer" is answered with four zero bytes.** Anything
+  else marks the printer as held by another host, and it is then not offered.
+- **The little-endian reply candidate was actively harmful and has been
+  removed.** Writing the length little endian puts its high byte into the
+  *result code* field, so the reply announced an error.
+
+### Added
+
+- The probe log now decodes each request into plain language - device type
+  (printer / network interface) and function name - instead of showing one
+  opaque 32-bit number. That is what will identify the next gap if one remains.
+- Reply candidates rebuilt around the real templates: `emulator` (each query
+  answered as the device answers it), `emulator+all` (additionally sends name,
+  addresses and status unprompted), `emulator-literal` (interface name from the
+  original capture), plus the previous simple shapes for comparison.
+- **Documentation for other single-board computers** (DE and EN): the five
+  criteria that decide whether any board works, plus measured figures - the
+  running service uses about 38 MB of RAM and 0.1% of a core when idle - and
+  specific notes on the Radxa ROCK Pi S (RK3308B) and the Orange Pi Zero (H3).
+
 ## [1.3.1] - 2026-08-21
 
 The measurement from 1.3.0 paid off, and it found a real bug.
@@ -475,6 +529,7 @@ First release under the new name. Complete rewrite of
   keeps redirecting the old name, so existing links and clones keep working.
 - See `MIGRATION.md` for upgrading an existing Raspberry Pi.
 
+[1.3.2]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.2
 [1.3.1]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.1
 [1.3.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.3.0
 [1.2.0]: https://github.com/loe17/Bonbridge/releases/tag/v1.2.0

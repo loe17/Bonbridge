@@ -153,7 +153,8 @@ Analysen Dritter; deshalb sendet BonBridge wahlweise mehrere Antwortvarianten
 und protokolliert jede Anfrage mit Hexdump, statt eine Formatvermutung als
 Tatsache auszugeben:
 
-* [wes4m: „Reverse Engineering Thermal Printers"](https://wes4m.io/posts/epson_rev/) — Rahmenaufbau `EPSONQ`/`EPSONq`, `EPSONC`/`EPSONc`, Funktionsnummern
+* [BlackLotus/epson-stuff — `enpc.lua`](https://github.com/BlackLotus/epson-stuff/blob/master/enpc.lua) — **Wireshark-Dissektor mit dem vollstaendigen Headeraufbau**: Geraetetyp, Geraetenummer, Funktion (16 Bit), Ergebniscode, Nutzdatenlaenge (16 Bit). Die maßgebliche Quelle für `discovery.py`
+* [wes4m: „Reverse Engineering Thermal Printers"](https://wes4m.io/posts/epson_rev/) — Mitschnitte eines echten TM-m30 und ein funktionierender Emulator mit allen fünf Antwortvorlagen
 * [mike42/escpos-php Issue #923: „Need help with ENPC protocol 3289"](https://github.com/mike42/escpos-php/issues/923) — das beobachtete 16-Byte-Suchpaket des ePOS-SDK
 * [Epson ePOS SDK: `Discovery.start`](https://download4.epson.biz/sec_pubs/pos/reference_en/epos_and/ref_epos_sdk_and_en_discoveryclass_start.html) — offizielle Client-Seite
 

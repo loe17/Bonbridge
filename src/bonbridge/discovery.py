@@ -103,13 +103,52 @@ def is_request(magic: bytes) -> bool:
     return reply_magic(magic) is not None
 
 
-#: Header length: 6 bytes magic + 4 bytes function + 4 bytes length field.
+#: Header length: everything before the payload.
 HEADER_LEN = 14
 
-#: Function codes seen in captures (big-endian reading of the 4 header bytes).
-FUNC_DEVICE_NAME = 0x03000000
-FUNC_NETWORK_INFO = 0x03000010
-FUNC_WHO_IS_HOLDING = 0x03000017
+#: Device type byte (offset 6).  The searching app asks the *printer* for its
+#: name and the *network interface* for its addresses - two different values.
+DEVICE_TYPE_NETWORK = 0x00
+DEVICE_TYPE_PRINTER = 0x03
+
+#: Function (offset 8-9, big endian 16 bit).
+FUNC_BASIC_INFO = 0x0000
+FUNC_STATUS = 0x0010
+FUNC_FORCED_TRANSMISSION = 0x0011
+FUNC_RESET = 0x0012
+FUNC_BUFFER_FLASH = 0x0013
+FUNC_CLEAR_TIMEOUT = 0x0016
+FUNC_WHO_IS_HOLDING = 0x0017
+
+FUNCTION_NAMES = {
+    FUNC_BASIC_INFO: "Basisinformation / basic information",
+    FUNC_STATUS: "Status",
+    FUNC_FORCED_TRANSMISSION: "Forced transmission",
+    FUNC_RESET: "Reset",
+    FUNC_BUFFER_FLASH: "Buffer flash",
+    FUNC_CLEAR_TIMEOUT: "Clear connection timeout",
+    FUNC_WHO_IS_HOLDING: "Wer belegt den Drucker / who is holding",
+}
+
+#: Result code (offset 10-11, big endian 16 bit).  Replies only; always zero in
+#: a request.
+RESULT_OK = 0x0000
+RESULT_NO_DEVICE = 0xFFFE
+RESULT_UNSUPPORTED = 0xFFFF
+
+#: Fixed blobs from the captured device.  Their meaning is not published, and
+#: inventing values here would be worse than replaying what a real printer
+#: demonstrably sends.
+PREFIX_DEVICE_NAME = b"\x00\x05\x01\x02\x01"
+NAME_FIELD_LEN = 128  # 5 + 128 = 133 = the captured payload length
+DEVICE_INFO_BLOB = bytes.fromhex("0e14 0000 0fff ffff ff39 4140 00".replace(" ", ""))
+NETWORK_TAIL = b"\x80\x7c"
+INTERFACE_NAME_LEN = 33
+INTERFACE_TAIL = bytes.fromhex("01ffff15000200")
+INTERFACE_SUFFIX = bytes.fromhex("00000001") + bytes.fromhex("00000001")
+
+#: The interface name from the capture.  Used verbatim by one candidate.
+CAPTURED_INTERFACE_NAME = b"UB-EEAE083ENSN"
 
 #: How many probes to keep for the diagnostics page.
 PROBE_LOG_SIZE = 40
@@ -126,56 +165,96 @@ def hexdump(data: bytes, width: int = 16) -> str:
     return "\n".join(lines)
 
 
-def build_frame(
-    magic: bytes, function: bytes, payload: bytes = b"", little_endian: bool = False
+def build_reply(
+    magic: bytes,
+    device_type: int,
+    device_number: int,
+    function: int,
+    payload: bytes = b"",
+    result: int = RESULT_OK,
 ) -> bytes:
-    """``<magic:6><function:4><len(payload):4><payload>``.
-
-    The length is **big endian**.  That is not a guess: in the captured reply of
-    a real TM-m30 the field reads ``00 00 00 17`` and the payload that follows
-    is exactly 23 bytes, while a little-endian reading would be 385'875'968.
-    """
-    length = struct.pack("<I" if little_endian else ">I", len(payload))
-    return magic + function[:4].ljust(4, b"\x00") + length + payload
+    """Assemble a reply with every header field in its documented place."""
+    return (
+        magic
+        + bytes((device_type & 0xFF, device_number & 0xFF))
+        + struct.pack(">H", function & 0xFFFF)
+        + struct.pack(">H", result & 0xFFFF)
+        + struct.pack(">H", len(payload))
+        + payload
+    )
 
 
 def build_echo_frame(magic: bytes, header_tail: bytes, payload: bytes = b"") -> bytes:
     """Mirror the request header verbatim and append a payload.
 
     Kept only so the old behaviour can still be selected for comparison.  It is
-    structurally broken against a real client: the request declares a payload
-    length of zero, so a parser that trusts the length field never looks at the
-    payload at all.
+    structurally broken: the request declares a payload length of zero, so a
+    parser that trusts the length field never looks at the payload.
     """
     return magic + header_tail[:8].ljust(8, b"\x00") + payload
 
 
-#: Payload of the captured TM-m30 discovery reply, minus the model name.
-#: The meaning of these five bytes is unknown; they are reproduced verbatim
-#: because a real device sent them and the client evidently accepts them.
-DEVICE_PREFIX = b"\x00\x05\x01\x02\x01"
+def parse_frame(data: bytes) -> Optional[Dict[str, Any]]:
+    """Split an ENPC datagram into its header fields and payload."""
+    if len(data) < 6:
+        return None
+    magic = data[:6]
+    if not (is_request(magic) or (magic.startswith(MAGIC_PREFIX) and magic[5:6].islower())):
+        return None
+    header = data[6:HEADER_LEN].ljust(8, b"\x00")
+    function = struct.unpack(">H", header[2:4])[0]
+    return {
+        "magic": magic,
+        "header_tail": header,
+        "device_type": header[0],
+        "device_number": header[1],
+        "function": function,
+        "function_name": FUNCTION_NAMES.get(function, "unbekannt / unknown"),
+        "result": struct.unpack(">H", header[4:6])[0],
+        "declared_length": struct.unpack(">H", header[6:8])[0],
+        "payload": data[HEADER_LEN:],
+        "raw": data,
+    }
 
-#: Total payload size of that reply.  The name is NUL-padded up to it.
-DEVICE_PAYLOAD_LEN = 0x85  # 133
 
-#: Trailing bytes of the captured network-info reply, meaning unknown.
-NETWORK_TAIL = b"\x80\x7c"
-
-#: Function id of the network-info reply the device sent unprompted.
-FUNC_NETWORK_REPLY = b"\x00\x00\x00\x10"
-
-
-def device_payload(model: bytes) -> bytes:
-    """The captured discovery payload with our model name substituted."""
-    body = DEVICE_PREFIX + model[: DEVICE_PAYLOAD_LEN - len(DEVICE_PREFIX) - 1]
-    return body.ljust(DEVICE_PAYLOAD_LEN, b"\x00")
-
-
-def network_payload(identity: Dict[str, bytes]) -> bytes:
-    """The captured network-info payload with our own addresses."""
+def describe_frame(frame: Dict[str, Any]) -> str:
+    """One line for the probe log, in the protocol's own vocabulary."""
+    kind = {DEVICE_TYPE_PRINTER: "Drucker/printer", DEVICE_TYPE_NETWORK: "Netzwerk/network"}.get(
+        frame["device_type"], f"0x{frame['device_type']:02x}"
+    )
     return (
-        identity["mac"]
-        + b"\x00\x00\x04"
+        f"{frame['magic'].decode('ascii', 'replace')} "
+        f"Geraetetyp {kind} "
+        f"Funktion 0x{frame['function']:04x} ({frame['function_name']})"
+    )
+
+
+# --------------------------------------------------------------------------
+# The payloads a real device sends, per (device type, function)
+# --------------------------------------------------------------------------
+
+
+def payload_device_name(model: bytes) -> bytes:
+    """Printer basic information: the model name in a fixed 128-byte field."""
+    return PREFIX_DEVICE_NAME + model[: NAME_FIELD_LEN - 1].ljust(NAME_FIELD_LEN, b"\x00")
+
+
+def payload_interface_info(interface_name: bytes, mac: bytes) -> bytes:
+    """Network interface basic information (the broadcast query)."""
+    return (
+        interface_name[: INTERFACE_NAME_LEN - 1].ljust(INTERFACE_NAME_LEN, b"\x00")
+        + INTERFACE_TAIL
+        + mac
+        + INTERFACE_SUFFIX
+    )
+
+
+def payload_network_info(identity: Dict[str, bytes]) -> bytes:
+    """Network interface status: MAC and the IP configuration."""
+    return (
+        b"\x01"
+        + identity["mac"]
+        + b"\x00\x04"
         + identity["ip"]
         + identity["netmask"]
         + identity["gateway"]
@@ -183,38 +262,104 @@ def network_payload(identity: Dict[str, bytes]) -> bytes:
     )
 
 
-#: Candidate reply layouts, most-likely first.
-#:
-#: Each entry is ``(id, description_de, description_en, builder)`` where the
-#: builder returns the list of datagrams to send.  They exist because the
-#: payload format is not published: instead of presenting one interpretation as
-#: fact, BonBridge can try them in turn and record which one it used.
-def _c_device(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
-    return [build_frame(magic, frame["function_bytes"], device_payload(identity["model"]))]
+def payload_printer_info() -> bytes:
+    """Printer status blob.  Replayed verbatim; the fields are not published."""
+    return DEVICE_INFO_BLOB
 
 
-def _c_device_net(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
-    return [
-        build_frame(magic, frame["function_bytes"], device_payload(identity["model"])),
-        build_frame(magic, FUNC_NETWORK_REPLY, network_payload(identity)),
+def emulator_reply(
+    frame: Dict[str, Any],
+    magic: bytes,
+    identity: Dict[str, bytes],
+    interface_name: bytes,
+) -> List[bytes]:
+    """Answer exactly the query that was asked, the way a TM-m30 answers it.
+
+    Every branch corresponds to one captured request/response pair.  A query we
+    have no template for is answered honestly with "function not supported"
+    rather than with a plausible-looking invention - a wrong answer is worse
+    than an admitted gap, because the client believes it.
+    """
+    device_type = frame["device_type"]
+    function = frame["function"]
+
+    def reply(payload: bytes, result: int = RESULT_OK) -> List[bytes]:
+        return [build_reply(magic, device_type, frame["device_number"], function, payload, result)]
+
+    if function == FUNC_BASIC_INFO:
+        if device_type == DEVICE_TYPE_NETWORK:
+            return reply(payload_interface_info(interface_name, identity["mac"]))
+        return reply(payload_device_name(identity["model"]))
+    if function == FUNC_STATUS:
+        if device_type == DEVICE_TYPE_NETWORK:
+            return reply(payload_network_info(identity))
+        return reply(payload_printer_info())
+    if function == FUNC_WHO_IS_HOLDING:
+        # All zeroes: nobody is holding this printer, it is free to use.
+        return reply(b"\x00" * 4)
+    return reply(b"", RESULT_UNSUPPORTED)
+
+
+# --------------------------------------------------------------------------
+# Candidate reply layouts
+# --------------------------------------------------------------------------
+
+
+def _generated_interface_name(mac: bytes) -> bytes:
+    """An interface name shaped like the captured one, built from our MAC."""
+    return b"UB-" + mac.hex()[-7:].upper().encode("ascii") + b"ENSN"
+
+
+def _c_emulator(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    return emulator_reply(frame, magic, identity, _generated_interface_name(identity["mac"]))
+
+
+def _c_emulator_literal(
+    frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]
+) -> List[bytes]:
+    return emulator_reply(frame, magic, identity, CAPTURED_INTERFACE_NAME)
+
+
+def _c_emulator_all(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    """The asked-for reply plus the other three, unprompted.
+
+    For clients that expect to learn name *and* addresses before they list a
+    device but only ever send one query.
+    """
+    name = _generated_interface_name(identity["mac"])
+    out = emulator_reply(frame, magic, identity, name)
+    extras = [
+        (DEVICE_TYPE_PRINTER, FUNC_BASIC_INFO, payload_device_name(identity["model"])),
+        (DEVICE_TYPE_NETWORK, FUNC_BASIC_INFO, payload_interface_info(name, identity["mac"])),
+        (DEVICE_TYPE_NETWORK, FUNC_STATUS, payload_network_info(identity)),
+        (DEVICE_TYPE_PRINTER, FUNC_STATUS, payload_printer_info()),
     ]
+    for device_type, function, payload in extras:
+        if device_type == frame["device_type"] and function == frame["function"]:
+            continue  # already sent as the direct answer
+        out.append(build_reply(magic, device_type, frame["device_number"], function, payload))
+    return out
 
 
-def _c_device_le(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+def _c_name_padded(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
+    payload = identity["model"][:132].ljust(133, b"\x00")
     return [
-        build_frame(
-            magic, frame["function_bytes"], device_payload(identity["model"]), little_endian=True
+        build_reply(
+            magic, frame["device_type"], frame["device_number"], frame["function"], payload
         )
     ]
 
 
-def _c_name_padded(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
-    payload = identity["model"][: DEVICE_PAYLOAD_LEN - 1].ljust(DEVICE_PAYLOAD_LEN, b"\x00")
-    return [build_frame(magic, frame["function_bytes"], payload)]
-
-
 def _c_name_plain(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
-    return [build_frame(magic, frame["function_bytes"], identity["model"] + b"\x00")]
+    return [
+        build_reply(
+            magic,
+            frame["device_type"],
+            frame["device_number"],
+            frame["function"],
+            identity["model"] + b"\x00",
+        )
+    ]
 
 
 def _c_identity(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
@@ -228,54 +373,60 @@ def _c_identity(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes])
         + identity["name"]
         + b"\x00"
     )
-    return [build_frame(magic, frame["function_bytes"], payload)]
+    return [
+        build_reply(
+            magic, frame["device_type"], frame["device_number"], frame["function"], payload
+        )
+    ]
 
 
 def _c_legacy_echo(frame: Dict[str, Any], magic: bytes, identity: Dict[str, bytes]) -> List[bytes]:
-    payload = identity["name"] + b"\x00" + identity["model"] + b"\x00" + identity["mac"] + identity["ip"]
+    payload = (
+        identity["name"] + b"\x00" + identity["model"] + b"\x00" + identity["mac"] + identity["ip"]
+    )
     return [build_echo_frame(magic, frame["header_tail"], payload)]
 
 
 REPLY_CANDIDATES: List[Dict[str, Any]] = [
     {
-        "id": "device",
-        "de": "Antwort eines echten TM-m30, Modellname ersetzt (133 Byte, Big Endian)",
-        "en": "Reply of a real TM-m30 with the model name swapped (133 bytes, big endian)",
-        "builder": _c_device,
+        "id": "emulator",
+        "de": "Vollstaendig: jede Anfrage wird so beantwortet wie von einem echten TM-m30",
+        "en": "Complete: every query answered the way a real TM-m30 answers it",
+        "builder": _c_emulator,
     },
     {
-        "id": "device+net",
-        "de": "Wie 'device', zusätzlich die Netzwerk-Info-Antwort (MAC, IP, Maske, Gateway)",
-        "en": "Like 'device' plus the network-info reply (MAC, IP, netmask, gateway)",
-        "builder": _c_device_net,
+        "id": "emulator+all",
+        "de": "Wie 'emulator', schickt zusaetzlich Name, Adressen und Status unaufgefordert mit",
+        "en": "Like 'emulator' plus name, addresses and status sent unprompted",
+        "builder": _c_emulator_all,
     },
     {
-        "id": "device-le",
-        "de": "Wie 'device', aber Längenfeld Little Endian - falls der Client anders liest",
-        "en": "Like 'device' but with a little-endian length field, in case the client differs",
-        "builder": _c_device_le,
+        "id": "emulator-literal",
+        "de": "Wie 'emulator', aber mit dem Schnittstellennamen aus dem Originalmitschnitt",
+        "en": "Like 'emulator' but with the interface name from the original capture",
+        "builder": _c_emulator_literal,
     },
     {
         "id": "name-padded",
-        "de": "Nur der Modellname, auf 133 Byte mit Nullen aufgefüllt",
-        "en": "Just the model name, NUL-padded to 133 bytes",
+        "de": "Nur der Modellname, auf 133 Byte mit Nullen aufgefuellt, ohne Praefix",
+        "en": "Just the model name, NUL-padded to 133 bytes, without the prefix",
         "builder": _c_name_padded,
     },
     {
         "id": "name-plain",
-        "de": "Nur der Modellname mit abschließender Null, keine Auffüllung",
+        "de": "Nur der Modellname mit abschliessender Null, keine Auffuellung",
         "en": "Just the model name with a terminating NUL, no padding",
         "builder": _c_name_plain,
     },
     {
         "id": "identity",
-        "de": "MAC, IP, Maske, Gateway, Modell, Gerätename - alles am Stück",
-        "en": "MAC, IP, netmask, gateway, model, device name - all in one block",
+        "de": "MAC, IP, Maske, Gateway, Modell, Geraetename am Stueck",
+        "en": "MAC, IP, netmask, gateway, model, device name in one block",
         "builder": _c_identity,
     },
     {
         "id": "legacy-echo",
-        "de": "Alte Fassung: Anfrage-Kopf gespiegelt (Längenfeld bleibt 0 - nachweislich falsch)",
+        "de": "Alte Fassung: Anfrage-Kopf gespiegelt (Laengenfeld bleibt 0 - nachweislich falsch)",
         "en": "Old behaviour: request header mirrored (length stays 0 - demonstrably wrong)",
         "builder": _c_legacy_echo,
     },
@@ -285,29 +436,8 @@ CANDIDATE_IDS = [entry["id"] for entry in REPLY_CANDIDATES]
 
 #: ``cycle`` walks the list, one candidate per probe.  Any candidate id pins
 #: that one layout.  ``all`` sends every candidate at once - noisy, but useful
-#: as a last resort when a client only ever sends a single probe.
+#: when a client only ever sends a single probe.
 REPLY_STYLES = ("cycle", "all", *CANDIDATE_IDS)
-
-
-def parse_frame(data: bytes) -> Optional[Dict[str, Any]]:
-    """Split an ENPC datagram into magic, header tail and payload."""
-    if len(data) < 6:
-        return None
-    magic = data[:6]
-    if not (is_request(magic) or (magic.startswith(MAGIC_PREFIX) and magic[5:6].islower())):
-        return None
-    header_tail = data[6:HEADER_LEN].ljust(8, b"\x00")
-    function = struct.unpack(">I", header_tail[:4])[0] if len(header_tail) >= 4 else 0
-    return {
-        "magic": magic,
-        "header_tail": header_tail,
-        "function_bytes": header_tail[:4],
-        "function": function,
-        "declared_length": struct.unpack(">I", header_tail[4:8])[0],
-        "declared_length_le": struct.unpack("<I", header_tail[4:8])[0],
-        "payload": data[HEADER_LEN:],
-        "raw": data,
-    }
 
 
 class EnpcResponder(threading.Thread):
@@ -402,7 +532,8 @@ class EnpcResponder(threading.Thread):
             "hexdump": hexdump(data),
             "recognised": recognised,
             "magic": frame["magic"].decode("ascii", "replace") if frame else "",
-            "function": f"0x{frame['function']:08x}" if frame else "",
+            "function": f"0x{frame['function']:04x}" if frame else "",
+            "device_type": frame["device_type"] if frame else None,
             "answered": False,
             "reply_hexdump": "",
             "summary": "",
@@ -427,9 +558,7 @@ class EnpcResponder(threading.Thread):
         # its retries gets candidate 1, 2, 3 ... in order.
         replies, candidate = self._build_replies(frame, peer[0])
         entry["candidate"] = candidate
-        entry["summary"] = (
-            f"{entry['magic']} function {entry['function']} -> Antwort '{candidate}'"
-        )
+        entry["summary"] = f"{describe_frame(frame)} -> Antwort '{candidate}'"
         entry["reply_hexdump"] = "\n\n".join(hexdump(reply) for reply in replies)
 
         sent_to: List[str] = []
@@ -443,10 +572,10 @@ class EnpcResponder(threading.Thread):
             with self._lock:
                 self.replies += 1
             log.info(
-                "ENPC: answered %s from %s (function %s) -> %s",
-                entry["magic"],
+                "ENPC: answered %s from %s -> %s (%s)",
+                describe_frame(frame),
                 peer_text,
-                entry["function"],
+                candidate,
                 ", ".join(sent_to),
             )
 
@@ -543,14 +672,26 @@ class EnpcResponder(threading.Thread):
         return REPLY_CANDIDATES[index % len(REPLY_CANDIDATES)]
 
     def _build_replies(self, frame: Dict[str, Any], peer_key: str) -> Tuple[List[bytes], str]:
-        """Datagrams to send, plus the name of the layout that produced them."""
+        """Datagrams to send, plus the name of the layout that produced them.
+
+        Only **one** query is uncertain: the printer's basic information, whose
+        payload carries the model name behind five undocumented bytes.  Every
+        other query has exactly one answer that a real device is known to give,
+        so trying variants there would be pure vandalism - the network status
+        query wants MAC and IP, and "who is holding" wants four zero bytes, not
+        a model name.  The candidate cycling therefore applies to the name
+        query alone.
+        """
         magic = reply_magic(frame["magic"]) or MAGIC_QUERY_REPLY
         identity = self._identity()
 
-        # "Who is holding this printer?" has a known answer and no room for
-        # variants: all zeroes means "nobody, it is free".
-        if frame["function"] == FUNC_WHO_IS_HOLDING:
-            return [build_frame(magic, frame["function_bytes"], b"\x00" * 4)], "who-is-holding"
+        uncertain = (
+            frame["device_type"] == DEVICE_TYPE_PRINTER
+            and frame["function"] == FUNC_BASIC_INFO
+        )
+        if not uncertain:
+            interface = _generated_interface_name(identity["mac"])
+            return emulator_reply(frame, magic, identity, interface), "emulator (fest)"
 
         if self.reply_style == "all":
             datagrams: List[bytes] = []

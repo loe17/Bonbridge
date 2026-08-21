@@ -165,50 +165,67 @@ request is listed underneath with its sender and a full hexdump.
 
 ### When ENPC counts up but the printer still does not appear
 
-This is the case measured on 2026-08-21: **7 requests on UDP 3289, all
-answered, every other protocol at zero** - and the printer still did not show
-up. That narrowed the question from "which protocol?" to "which reply format?".
+This is the measured case: **requests on UDP 3289, all answered, every other
+protocol at zero** - and the printer still does not show up. The question is
+then no longer "which protocol" but "which reply format".
 
-The request the app sends looks like this (14 bytes, repeated every three
-seconds):
+#### The header, read correctly
 
-```
-45 50 53 4f 4e 51  03 00 00 00  00 00 00 00
-E  P  S  O  N  Q   function     length = 0
-```
+For a long time the ENPC header looked like a 4-byte function plus a 4-byte
+length. That is wrong. A Wireshark dissector from public analysis shows **eight
+fields**, and all three real packets available fit it exactly:
 
-A real TM-m30 answers it with 147 bytes:
+| Offset | Length | Field |
+|---|---|---|
+| 0 | 5 | `EPSON` |
+| 5 | 1 | Packet type: `Q`/`C` = request, `q`/`c` = reply |
+| 6 | 1 | **Device type**: `0x03` = printer, `0x00` = network interface |
+| 7 | 1 | Device number (`0x00`) |
+| 8 | 2 | **Function** (16 bit): `0x0000` basic info, `0x0010` status, `0x0017` "who is holding" |
+| 10 | 2 | **Result code** (replies only): `0x0000` = fine, `0xFFFF` = function not supported |
+| 12 | 2 | **Payload length** (16 bit) |
+| 14 | n | Payload |
 
-```
-45 50 53 4f 4e 71  03 00 00 00  00 00 00 85  00 05 01 02 01  "TM-m30" 00 00 ...
-E  P  S  O  N  q   function     length = 133  (unknown)       model, padded
-```
+That explains two bugs which were invisible before:
 
-Two things follow from that, and neither is a guess:
+1. **Mirroring the request header was structurally impossible.** The request
+   declares length **0**; a reply that mirrors that header and appends data is
+   telling the client "there is nothing here".
+2. **There is no 32-bit length field.** Writing the length as 32 bits happens to
+   be right while it stays small - but write it little endian and the high byte
+   lands in the **result code**, so the reply reports an error instead of a
+   printer.
 
-1. **The length field is big endian.** In the same device's network reply the
-   field reads `00 00 00 17` and exactly 23 bytes follow. Read little endian
-   the same field would be 385,875,968.
-2. **Mirroring the request header cannot work.** The request declares a length
-   of **0**. A reply that mirrors that header and then appends data is telling
-   the client "there is nothing here" - and a parser that trusts the length
-   field never reads further. That was the default behaviour up to version
-   1.3.0.
+#### The five queries a real device answers
 
-### Using the app's retries as a format search
+| Device type | Function | What a TM-m30 replies |
+|---|---|---|
+| `0x00` network | `0x0000` | Interface name (33 bytes) + MAC + constants, 54 bytes |
+| `0x03` printer | `0x0000` | `00 05 01 02 01` + model name in a 128-byte field, 133 bytes |
+| `0x00` network | `0x0010` | MAC, IP, netmask, gateway, 23 bytes |
+| `0x03` printer | `0x0010` | Status blob, 13 bytes |
+| `0x03` printer | `0x0017` | Four NUL bytes = "nobody is holding this printer" |
+
+As of 1.3.2 BonBridge answers **each of these individually and correctly**
+instead of sending the same reply to everything. Queries without a known
+template are answered honestly with "function not supported" - an invented
+reply would be worse, because the client believes it.
+
+The last row matters especially: a device that does **not** answer "who is
+holding" with zeroes counts as held by another host and is not offered.
+
+#### Using the app's retries as a format search
 
 The app repeats its search until it is satisfied. That is a free search loop:
 in **"try each in turn"** mode (the default) every retry gets the **next** reply
-shape, and the log records which one was used for each request.
-
-One search therefore tries them all:
+shape, and the log records which one was used.
 
 | # | Shape | What it sends |
 |---|---|---|
-| 1 | `device` | The reply of a real TM-m30, rebuilt byte for byte with only the model name swapped |
-| 2 | `device+net` | Like 1 plus the network-info reply (MAC, IP, netmask, gateway) |
-| 3 | `device-le` | Like 1 but with a little-endian length field |
-| 4 | `name-padded` | Just the model name, padded to 133 bytes |
+| 1 | `emulator` | Each query answered individually the way a real TM-m30 answers it |
+| 2 | `emulator+all` | Like 1 plus name, addresses and status sent unprompted |
+| 3 | `emulator-literal` | Like 1 but with the interface name from the original capture |
+| 4 | `name-padded` | Just the model name, padded to 133 bytes, no prefix |
 | 5 | `name-plain` | Just the model name with a NUL byte |
 | 6 | `identity` | MAC, IP, netmask, gateway, model, device name in one block |
 | 7 | `legacy-echo` | The old, demonstrably wrong version - for comparison only |
@@ -217,16 +234,17 @@ One search therefore tries them all:
 
 1. *Clear the list*, then start the search in the POS app and **let it run**
    until the printer appears or the search ends.
-2. If the printer appears: reload the diagnostics page and look at which shape
-   was sent for the **last** request.
-3. **Pin** that shape under *ENPC reply shape* and save. From then on only that
-   one is sent.
+2. If the printer appears: reload the diagnostics page and see which shape was
+   sent for the **last** request.
+3. **Pin** that shape under *ENPC reply shape* and save.
 
-If the printer appears for none of the seven, send the hexdump - with the real
-request bytes and the knowledge that all seven are ruled out, the next step is
-far more tightly bounded.
+If the printer appears for none of them, the log still helps: it now shows the
+device type and function of every request in plain language. If **functions
+other than `0x0000`** turn up, the app is getting further than before and only
+a template is missing. If it stays a single, endlessly repeated query, the app
+is rejecting the reply itself.
 
-### The manufacturer and model that are announced
+### The manufacturer and model that are announced### The manufacturer and model that are announced
 
 POS apps that search specifically for **Epson** printers filter by manufacturer
 name and model. Those two values therefore decide whether the device shows up

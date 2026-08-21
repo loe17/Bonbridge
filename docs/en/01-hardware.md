@@ -18,7 +18,7 @@ needed.
 | x86-64 mini PC / thin client | **recommended** | Debian 11-13, Ubuntu 22.04+. Ideal if you already own one. |
 | Raspberry Pi 1 B / B+ / Zero / Zero W | **works**, but slow | ARMv6, single core at 700 MHz, 256-512 MB RAM. See [Raspberry Pi 1 and other old boards](#raspberry-pi-1-and-other-old-boards). |
 | Raspberry Pi 2 | works | ARMv7, four cores. Noticeably quicker than a Pi 1, otherwise like a Pi 3. |
-| Orange Pi Zero 3, Radxa Zero, … | likely works | Untested. Needs a current Debian based image with systemd. |
+| Orange Pi Zero (H3), Radxa ROCK Pi S, … | works | With Armbian. See [Other single-board computers](#other-single-board-computers-orange-pi-radxa-and-the-like). |
 | Luckfox Pico and similar (Buildroot) | not supported | No `apt`, no full systemd. |
 | OpenWrt router with USB | not supported | Technically possible (`p910nd`), but the web interface and diagnostics would be a project of their own there. |
 
@@ -85,6 +85,84 @@ open is not something I would recommend for continuous operation.
 for one printer. For a new purchase the Pi Zero 2 W (about 23 EUR) is the
 better choice: four cores, 512 MB, built-in Wi-Fi and many more years of OS
 updates.
+
+## Other single-board computers (Orange Pi, Radxa and the like)
+
+BonBridge does not depend on a Raspberry Pi. It needs nothing a Pi has
+exclusively - no GPIO, no camera, no graphics. Five points decide whether a
+board works:
+
+1. **A Debian based OS with `apt` and systemd.** In practice that means
+   [Armbian](https://www.armbian.com/) or the vendor's own Debian image.
+   Buildroot and OpenWrt images are out.
+2. **Python 3.9 or newer.** Every current Armbian satisfies this (Debian 13
+   "Trixie" ships 3.13, Ubuntu 24.04/26.04 accordingly).
+3. **A USB host socket** for the printer. A pure OTG connector is not enough if
+   it runs in device mode.
+4. **Networking**, cabled or Wi-Fi.
+5. **Architecture** `armv6l`, `armv7l`, `aarch64`/`arm64` or `x86_64` - the
+   installer accepts all four.
+
+That is all. Nothing is compiled and every dependency is a ready-made Debian
+package.
+
+### What BonBridge actually costs
+
+Measured on the running service with everything switched on - web interface,
+printer handling, all four discovery protocols, network watchdog, update check:
+
+| Resource | Value |
+|---|---|
+| Memory (RSS) | **about 38 MB** |
+| Idle CPU | **0.1% of one core** (roughly 0.3% on a slow ARM core) |
+| Disk | ~15 MB program + documentation, plus logs |
+| Threads | 15 |
+
+On a 256 MB board that is about 15% of RAM - comfortable, as long as you do not
+install a desktop image.
+
+### Radxa ROCK Pi S (RK3308B)
+
+**Works.** Armbian lists the board at support level *Standard* (actively
+maintained) and offers current minimal images - Debian 13 "Trixie" and Ubuntu
+26.04, both CLI only, with kernel 6.18.
+
+* Four Cortex-A35 cores, 256 or 512 MB RAM, 100 Mbit Ethernet on board.
+* One USB 2.0 Type-A socket as **host** - that is where the printer goes. The
+  Type-C socket is OTG and carries power.
+* No `vcgencmd`: the Raspberry Pi specific under-voltage and throttling
+  detection does not apply. Every other check (temperature, memory, disk,
+  network, printer) works normally.
+* **Take the 512 MB model** if you have the choice, and a decent 5 V supply.
+
+### Orange Pi Zero (H3, 256 MB)
+
+**Works as well.** Armbian lists it as *Community* supported and currently
+offers Debian 13 "Trixie" as a CLI image (about 300 MB) and Ubuntu 26.04, with
+kernel 6.18.
+
+* Four Cortex-A7 cores (ARMv7), 100 Mbit Ethernet on board.
+* One USB 2.0 Type-A host socket plus Micro-USB (OTG/power). Two further USB
+  ports sit on the 13-pin header and need an adapter cable.
+* **The built-in Wi-Fi (XR819) has a reputation for being unreliable.** For a
+  device that has to print during service that is a real risk - **use the LAN
+  cable** or a USB Wi-Fi dongle.
+* The board runs warm; a stick-on heatsink is sensible.
+* 256 MB is enough, but tight enough that CUPS (`--with-cups`) is a bad idea
+  there. BonBridge does not need it.
+
+### An honest assessment
+
+Both boards work and both get current operating systems. Two things still speak
+for a Raspberry Pi Zero 2 W if you are buying new:
+
+* **Familiarity.** When something goes wrong you find an answer for the Pi in
+  minutes; for the ROCK Pi S you read forum threads.
+* **Image maintenance.** *Community* support, as for the Orange Pi Zero, means
+  images exist for as long as somebody keeps caring.
+
+If one of these boards is already lying around: set it up and use it. For one
+printer either is more than enough.
 
 ## Why not an ESP32?
 

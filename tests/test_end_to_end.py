@@ -238,30 +238,39 @@ def check_discovery_protocols() -> None:
     check(discovery.reply_magic(b"EPSONq") is None, "a reply is not treated as a request")
     check(discovery.reply_magic(b"HPHPQ!") is None, "a foreign magic is ignored")
 
-    # The exact 14-byte broadcast captured from the POS app on 2026-08-21.
-    observed = bytes.fromhex("4550534f4e51030000000000000000")[:14]
+    # The exact 14-byte query captured from the POS app on 2026-08-21.
+    observed = bytes.fromhex("4550534f4e510300000000000000")
     frame = discovery.parse_frame(observed)
-    check(frame is not None and frame["magic"] == b"EPSONQ", "the captured app broadcast parses")
-    check(frame["declared_length"] == 0, "the captured request declares a payload length of zero")
+    check(frame is not None and frame["magic"] == b"EPSONQ", "the captured app query parses")
 
-    # The length field is big endian.  Proof, not preference: in the captured
-    # reply of a real TM-m30 the field reads 00 00 00 17 and exactly 23 payload
-    # bytes follow.
-    real_network_reply = bytes.fromhex(
-        "4550534f4e7100000010000000170102000000000000" "04c0a80109ffffff00c0a8010180" "7c"
+    # The header is not "function(4) + length(4)" but eight distinct fields.
+    # Checked against three real packets: the app's query and two TM-m30 replies.
+    check(frame["device_type"] == discovery.DEVICE_TYPE_PRINTER, "the query addresses the printer")
+    check(frame["function"] == discovery.FUNC_BASIC_INFO, "the query asks for basic information")
+    check(frame["result"] == 0, "a request carries result code zero")
+    check(frame["declared_length"] == 0, "the captured query declares a payload length of zero")
+
+    real_name_reply = bytes.fromhex(
+        "4550534f4e7103000000" "00000085" "0005010201" "544d2d6d3330"
     )
-    declared = int.from_bytes(real_network_reply[10:14], "big")
-    check(
-        declared == len(real_network_reply) - 14,
-        f"big-endian length matches the real device reply ({declared} bytes)",
+    real_net_reply = bytes.fromhex(
+        "4550534f4e7100000010" "00000017" "01" "020000000000" "0004"
+        "c0a80109" "ffffff00" "c0a80101" "807c"
     )
+    for label, packet, device_type, function, length in (
+        ("name", real_name_reply, 0x03, 0x0000, 133),
+        ("network", real_net_reply, 0x00, 0x0010, 23),
+    ):
+        parsed = discovery.parse_frame(packet)
+        check(parsed["device_type"] == device_type, f"real {label} reply: device type decoded")
+        check(parsed["function"] == function, f"real {label} reply: function decoded")
+        check(parsed["result"] == discovery.RESULT_OK, f"real {label} reply: result code is OK")
+        check(parsed["declared_length"] == length, f"real {label} reply: length decoded ({length})")
     check(
-        int.from_bytes(real_network_reply[10:14], "little") != len(real_network_reply) - 14,
-        "a little-endian reading of the same field does not match",
+        len(real_net_reply) - 14 == 23,
+        "the real network reply carries exactly the 23 bytes it declares",
     )
 
-    # Every candidate must declare the length it actually carries.  The one
-    # exception is the legacy echo, which is kept precisely to show it cannot.
     identity = {
         "name": b"Tresen",
         "model": b"TM-T88V",
@@ -271,29 +280,70 @@ def check_discovery_protocols() -> None:
         "gateway": bytes([192, 168, 178, 1]),
     }
     magic = discovery.reply_magic(frame["magic"])
+
+    # Every candidate must declare the length it actually carries and leave the
+    # result code at zero.  The legacy echo is kept precisely to show it cannot.
     for candidate in discovery.REPLY_CANDIDATES:
         for datagram in candidate["builder"](frame, magic, identity):
-            payload_len = len(datagram) - 14
-            big = int.from_bytes(datagram[10:14], "big")
-            little = int.from_bytes(datagram[10:14], "little")
-            consistent = big == payload_len or little == payload_len
+            parsed = discovery.parse_frame(datagram)
+            correct = parsed["declared_length"] == len(datagram) - 14
             if candidate["id"] == "legacy-echo":
-                check(not consistent, "the legacy echo is proven to declare a wrong length")
+                check(not correct, "the legacy echo is proven to declare a wrong length")
             else:
-                check(consistent, f"candidate '{candidate['id']}' declares its real length")
+                check(correct, f"candidate '{candidate['id']}' declares its real length")
+                check(
+                    parsed["result"] in (discovery.RESULT_OK, discovery.RESULT_UNSUPPORTED),
+                    f"candidate '{candidate['id']}' sends a valid result code",
+                )
             check(datagram.startswith(b"EPSONq"), f"candidate '{candidate['id']}' replies as EPSONq")
 
-    # The first candidate reproduces the captured device reply byte for byte,
-    # up to the model name itself.
-    real_discovery_reply = bytes.fromhex("4550534f4e71030000000000008500050102 01544d2d6d3330".replace(" ", ""))
-    ours = discovery.REPLY_CANDIDATES[0]["builder"](frame, magic, identity)[0]
-    check(len(ours) == 14 + 133, f"the device candidate is 147 bytes like the original ({len(ours)})")
+    # The first candidate answers *each* query the way the captured device does.
+    queries = {
+        "printer name": ("4550534f4e5103000000" "00000000", 0x03, 0x0000, 133),
+        "interface info": ("4550534f4e5100000000" "00000000", 0x00, 0x0000, 54),
+        "network status": ("4550534f4e5100000010" "00000000", 0x00, 0x0010, 23),
+        "who is holding": ("4550534f4e5103000017" "00000000", 0x03, 0x0017, 4),
+    }
+    for label, (raw, device_type, function, length) in queries.items():
+        query = discovery.parse_frame(bytes.fromhex(raw))
+        answer = discovery.REPLY_CANDIDATES[0]["builder"](
+            query, discovery.reply_magic(query["magic"]), identity
+        )[0]
+        parsed = discovery.parse_frame(answer)
+        check(parsed["device_type"] == device_type, f"'{label}': device type is echoed")
+        check(parsed["function"] == function, f"'{label}': function is echoed")
+        check(
+            parsed["declared_length"] == length == len(answer) - 14,
+            f"'{label}': payload is {length} bytes, as the real device sends",
+        )
+
+    # A query we have no template for is answered honestly, not invented.
+    unknown = discovery.parse_frame(bytes.fromhex("4550534f4e5103001300" "00000000"))
+    answer = discovery.REPLY_CANDIDATES[0]["builder"](
+        unknown, discovery.reply_magic(unknown["magic"]), identity
+    )[0]
     check(
-        ours[:19] == real_discovery_reply[:19],
-        "the device candidate matches the real reply up to the model name",
+        discovery.parse_frame(answer)["result"] == discovery.RESULT_UNSUPPORTED,
+        "an unknown function is answered with 'not supported', not with a guess",
     )
-    check(b"TM-T88V" in ours, "the device candidate carries our own model name")
-    check(ours[19 + 7 :].strip(b"\x00") == b"", "the model name is NUL-padded to the full length")
+
+    # Byte-for-byte agreement with the captures, apart from what must differ.
+    ours = discovery.REPLY_CANDIDATES[0]["builder"](frame, magic, identity)[0]
+    check(len(ours) == 147, f"the name reply is 147 bytes like the original ({len(ours)})")
+    check(ours[:19] == real_name_reply[:19], "the name reply matches the original up to the model")
+    check(b"TM-T88V" in ours, "the name reply carries our own model name")
+    check(ours[19 + 7 :].strip(b"\x00") == b"", "the model name is NUL-padded to the full field")
+
+    net_query = discovery.parse_frame(bytes.fromhex("4550534f4e5100000010" "00000000"))
+    net = discovery.REPLY_CANDIDATES[0]["builder"](
+        net_query, discovery.reply_magic(net_query["magic"]), identity
+    )[0]
+    check(net[:14] == real_net_reply[:14], "the network reply header matches the original")
+    check(net[14:15] == real_net_reply[14:15], "the network reply keeps the leading marker byte")
+    check(net[21:23] == real_net_reply[21:23], "the network reply keeps the constant after the MAC")
+    check(net[-2:] == real_net_reply[-2:], "the network reply keeps the trailing bytes")
+    check(net[15:21] == identity["mac"], "the network reply carries our own MAC")
+    check(net[23:27] == identity["ip"], "the network reply carries our own IP")
 
     # -- SNMP: encode a real request, decode our own response --------------
     mib = snmp.build_mib(model="TM-T88V", device_name="Theke", serial="S1", mac=b"\x01\x02\x03\x04\x05\x06")
@@ -736,6 +786,31 @@ def main() -> int:
                 except socket.timeout:
                     cycle_socket.settimeout(5)
         check(len(seen_shapes) >= 4, f"retries walk through the candidates ({len(seen_shapes)} shapes)")
+
+        # Cycling must apply to the uncertain name query only.  The other
+        # queries have exactly one known-correct answer, and sending a model
+        # name where four zero bytes belong would be vandalism.
+        for label, raw, expect_len in (
+            ("network status", "4550534f4e5100000010" "00000000", 23),
+            ("who is holding", "4550534f4e5103000017" "00000000", 4),
+        ):
+            answers = set()
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as fixed_socket:
+                fixed_socket.settimeout(5)
+                for _ in range(4):
+                    fixed_socket.sendto(bytes.fromhex(raw), ("127.0.0.1", ENPC_PORT))
+                    datagram, _ = fixed_socket.recvfrom(2048)
+                    answers.add(datagram)
+            check(len(answers) == 1, f"'{label}' always gets the same, correct answer")
+            only = next(iter(answers))
+            check(
+                int.from_bytes(only[12:14], "big") == expect_len == len(only) - 14,
+                f"'{label}' answers with the {expect_len} bytes a real device sends",
+            )
+        check(
+            next(iter(answers))[14:] == b"\x00" * 4,
+            "'who is holding' answers with zeroes - the printer is free",
+        )
         used = {
             entry.get("candidate")
             for entry in get_json("/api/discovery")["discovery"]["probes"]

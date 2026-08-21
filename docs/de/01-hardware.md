@@ -18,7 +18,7 @@ gebraucht werden.
 | x86-64 Mini-PC / Thin Client | **empfohlen** | Debian 11–13, Ubuntu 22.04+. Ideal, wenn ohnehin ein Gerät vorhanden ist. |
 | Raspberry Pi 1 B / B+ / Zero / Zero W | **funktioniert**, aber langsam | ARMv6, ein Kern mit 700 MHz, 256–512 MB RAM. Siehe [Raspberry Pi 1 und andere alte Boards](#raspberry-pi-1-und-andere-alte-boards). |
 | Raspberry Pi 2 | funktioniert | ARMv7, vier Kerne. Deutlich flotter als ein Pi 1, sonst wie Pi 3. |
-| Orange Pi Zero 3 / Radxa Zero u. ä. | funktioniert vermutlich | Nicht getestet. Voraussetzung: aktuelles Debian-basiertes Image mit systemd. |
+| Orange Pi Zero (H3), Radxa ROCK Pi S u. ä. | funktioniert | Mit Armbian. Siehe [Andere Einplatinenrechner](#andere-einplatinenrechner-orange-pi-radxa-und-hnliche). |
 | Luckfox Pico u. ä. (Buildroot) | nicht unterstützt | Kein `apt`, kein systemd im gewohnten Umfang. |
 | OpenWrt-Router mit USB | nicht unterstützt | Technisch möglich (`p910nd`), aber Web-UI und Diagnose wären dort ein eigenes Projekt. |
 
@@ -85,6 +85,88 @@ Weboberfläche ist nichts, was ich für den Dauerbetrieb empfehlen würde.
 **Fazit:** Wenn ein Pi 1 herumliegt – aufsetzen und benutzen, für einen Drucker
 reicht er. Für einen Neukauf ist der Pi Zero 2 W (ca. 23 €) die bessere Wahl:
 vier Kerne, 512 MB, WLAN eingebaut und noch viele Jahre Betriebssystem-Updates.
+
+## Andere Einplatinenrechner (Orange Pi, Radxa und ähnliche)
+
+BonBridge ist nicht auf den Raspberry Pi angewiesen. Es braucht nichts, was ein
+Pi exklusiv hätte — kein GPIO, keine Kamera, keine Grafik. Ob ein Board
+funktioniert, entscheiden fünf Punkte:
+
+1. **Ein Debian-basiertes Betriebssystem mit `apt` und systemd.** In der Praxis
+   heißt das: [Armbian](https://www.armbian.com/) oder das Debian-Image des
+   Herstellers. Buildroot- oder OpenWrt-Images fallen raus.
+2. **Python 3.9 oder neuer.** Jedes aktuelle Armbian erfüllt das (Debian 13
+   „Trixie" bringt 3.13, Ubuntu 24.04/26.04 entsprechend).
+3. **Eine USB-Host-Buchse** für den Drucker. Ein reiner OTG-Anschluss reicht
+   nicht, wenn er im Gerätemodus läuft.
+4. **Netzwerk**, per Kabel oder WLAN.
+5. **Architektur** `armv6l`, `armv7l`, `aarch64`/`arm64` oder `x86_64` — der
+   Installer akzeptiert alle vier.
+
+Mehr ist es nicht. Es wird nichts kompiliert, alle Abhängigkeiten sind fertige
+Debian-Pakete.
+
+### Was BonBridge tatsächlich braucht
+
+Gemessen am laufenden Dienst mit allem eingeschaltet — Weboberfläche,
+Druckerverwaltung, alle vier Suchprotokolle, Netzwerküberwachung,
+Update-Prüfung:
+
+| Größe | Wert |
+|---|---|
+| Arbeitsspeicher (RSS) | **rund 38 MB** |
+| CPU im Leerlauf | **0,1 % eines Kerns** (auf einem langsamen ARM-Kern grob 0,3 %) |
+| Plattenplatz | ~15 MB Programm + Doku, dazu Logs |
+| Threads | 15 |
+
+Auf einem 256-MB-Board sind das etwa 15 % des Arbeitsspeichers. Das ist
+komfortabel, solange man kein Desktop-Image installiert.
+
+### Radxa ROCK Pi S (RK3308B)
+
+**Läuft.** Armbian führt das Board mit Support-Level *Standard* (aktiv
+gepflegt) und bietet aktuelle Minimal-Images an — Debian 13 „Trixie" und Ubuntu
+26.04, beide reine Kommandozeile, mit Kernel 6.18.
+
+* Vier Cortex-A35-Kerne, 256 oder 512 MB RAM, 100-MBit-Ethernet an Bord.
+* Eine USB-2.0-Buchse Typ A als **Host** — dort kommt der Drucker hin. Die
+  Typ-C-Buchse ist OTG und dient der Stromversorgung.
+* Kein `vcgencmd`: Die Raspberry-Pi-spezifische Unterspannungs- und
+  Drosselungserkennung entfällt. Die übrigen Prüfungen (Temperatur, Speicher,
+  Platte, Netzwerk, Drucker) funktionieren normal.
+* **Nimm das 512-MB-Modell**, wenn du die Wahl hast, und ein ordentliches
+  5-V-Netzteil.
+
+### Orange Pi Zero (H3, 256 MB)
+
+**Läuft ebenfalls.** Armbian führt das Board als *Community*-unterstützt und
+bietet aktuell Debian 13 „Trixie" als CLI-Image (rund 300 MB) sowie Ubuntu
+26.04 an, Kernel 6.18.
+
+* Vier Cortex-A7-Kerne (ARMv7), 100-MBit-Ethernet an Bord.
+* Eine USB-2.0-Buchse Typ A als Host, dazu Micro-USB (OTG/Strom). Zwei weitere
+  USB-Anschlüsse liegen auf der 13-poligen Stiftleiste und brauchen ein
+  Adapterkabel.
+* **Das eingebaute WLAN (XR819) gilt als unzuverlässig.** Für ein Gerät, das im
+  Betrieb drucken soll, ist das ein echtes Risiko — **nimm das LAN-Kabel** oder
+  einen USB-WLAN-Stick.
+* Das Board wird warm; ein aufgeklebter Kühlkörper ist sinnvoll.
+* 256 MB sind ausreichend, aber knapp genug, dass CUPS (`--with-cups`) dort
+  keine gute Idee ist. BonBridge braucht es nicht.
+
+### Ehrliche Einordnung
+
+Beide Boards funktionieren, und beide bekommen aktuelle Betriebssysteme. Zwei
+Dinge sprechen trotzdem weiter für einen Raspberry Pi Zero 2 W, wenn du neu
+kaufst:
+
+* **Bekanntheit.** Wenn etwas klemmt, findest du für den Pi in Minuten eine
+  Antwort; für den ROCK Pi S liest du Forenthreads.
+* **Bildpflege.** *Community*-Support wie beim Orange Pi Zero heißt: Es gibt
+  Images, solange sich jemand kümmert.
+
+Wenn eines der beiden Boards ohnehin herumliegt: aufsetzen und benutzen. Für
+einen Drucker reicht beides mit großem Abstand.
 
 ## Warum kein ESP32?
 
